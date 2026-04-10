@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -29,6 +30,7 @@ func main() {
 		SilenceUsage: true,
 	}
 
+	rootCmd.AddCommand(initCmd())
 	rootCmd.AddCommand(upCmd(wm))
 	rootCmd.AddCommand(stopCmd(wm))
 	rootCmd.AddCommand(listCmd(wm))
@@ -264,6 +266,92 @@ func sshCmd(wm workspace.Manager) *cobra.Command {
 			return nil
 		},
 	}
+}
+
+func initCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "init",
+		Short: "Initialize a new devbox.yaml configuration",
+		Long:  "Interactively create a devbox.yaml configuration file for the current project.\nDetects existing Docker and devcontainer configs and offers smart defaults.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			configPath := config.DefaultConfigFile
+
+			if _, err := os.Stat(configPath); err == nil {
+				return fmt.Errorf("devbox init: %s already exists", configPath)
+			}
+
+			scanner := bufio.NewScanner(os.Stdin)
+			w := os.Stdout
+
+			fromCompose, _ := cmd.Flags().GetString("from-compose")
+			if fromCompose != "" {
+				cfg, err := config.ConvertFromCompose(fromCompose)
+				if err != nil {
+					return fmt.Errorf("devbox init: %w", err)
+				}
+
+				fmt.Fprintf(w, "Converted %s: %d service(s), %d port(s)\n\n", fromCompose, len(cfg.Services), len(cfg.Ports))
+
+				dirName := filepath.Base(mustGetwd())
+				cfg.Name = config.PromptString(w, scanner, "Project name", dirName)
+				cfg.Server = config.PromptRequired(w, scanner, "Server")
+
+				if err := config.WriteConfig(cfg, configPath); err != nil {
+					return fmt.Errorf("devbox init: %w", err)
+				}
+				fmt.Fprintf(w, "\nCreated %s\n", configPath)
+				return nil
+			}
+
+			// Detect existing configs
+			detected := config.DetectExistingConfigs(".")
+			for _, d := range detected {
+				switch d.Type {
+				case "compose":
+					fmt.Fprintf(w, "Detected %s — use --from-compose %s to convert\n", d.Path, d.Path)
+				case "devcontainer":
+					fmt.Fprintf(w, "Detected %s\n", d.Path)
+				case "dockerfile":
+					fmt.Fprintf(w, "Detected %s\n", d.Path)
+				}
+			}
+			if len(detected) > 0 {
+				fmt.Fprintln(w)
+			}
+
+			// Interactive prompts
+			dirName := filepath.Base(mustGetwd())
+			name := config.PromptString(w, scanner, "Project name", dirName)
+			server := config.PromptRequired(w, scanner, "Server")
+			repo := config.PromptString(w, scanner, "Git repo", "")
+			servicesInput := config.PromptString(w, scanner, "Services (comma-separated, e.g. mysql:8.0,redis:7)", "")
+			portsInput := config.PromptString(w, scanner, "Ports (comma-separated, e.g. app:8080,db:3306)", "")
+
+			cfg := &config.DevboxConfig{
+				Name:     name,
+				Server:   server,
+				Repo:     repo,
+				Services: config.ParseCommaSeparated(servicesInput),
+				Ports:    config.ParsePortMappings(portsInput),
+			}
+
+			if err := config.WriteConfig(cfg, configPath); err != nil {
+				return fmt.Errorf("devbox init: %w", err)
+			}
+			fmt.Fprintf(w, "\nCreated %s\n", configPath)
+			return nil
+		},
+	}
+	cmd.Flags().String("from-compose", "", "Convert from an existing docker-compose.yml")
+	return cmd
+}
+
+func mustGetwd() string {
+	dir, err := os.Getwd()
+	if err != nil {
+		return "."
+	}
+	return dir
 }
 
 func formatPorts(ports map[string]int) string {
