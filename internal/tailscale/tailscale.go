@@ -40,5 +40,5 @@ func NewManager(run CommandRunner) Manager {
 
 // WorkspaceURL returns the HTTPS URL for a workspace on Tailscale.
 func WorkspaceURL(hostname, tailnet string) string {
-	return fmt.Sprintf("https://%s.%s.ts.net", hostname, tailnet)
+	return fmt.Sprintf("https://%s.%s", hostname, tailnet)
 }

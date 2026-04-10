@@ -20,7 +20,7 @@ func (m *tsManager) Serve(port int, hostname string) error {
 }
 
 func (m *tsManager) Unserve(port int) error {
-	_, err := m.run("tailscale", "serve", "--remove", fmt.Sprintf("%d", port))
+	_, err := m.run("tailscale", "serve", "--https=443", "off")
 	if err != nil {
 		return fmt.Errorf("tailscale unserve port %d: %w", port, err)
 	}
