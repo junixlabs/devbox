@@ -1,0 +1,39 @@
+# devbox.yaml — Project workspace configuration
+# Copy this file to your project root as devbox.yaml and customize.
+
+# Workspace name (used as container prefix and Tailscale hostname)
+name: dodgeprint
+
+# Target server (must be reachable via SSH and Tailscale)
+server: dev1
+
+# Git repository to clone into the workspace
+repo: git@github.com:junixlabs/dodgeprint-source.git
+
+# Branch to checkout (optional, defaults to main)
+# branch: feature/new-ui
+
+# Services to run alongside the app (Docker images)
+services:
+  - mysql:8.0
+  - redis:7-alpine
+
+# Port mappings exposed to the developer machine via Tailscale
+ports:
+  app: 8080
+  mysql: 3306
+  redis: 6379
+
+# Environment variables injected into the workspace
+env:
+  APP_ENV: local
+  APP_DEBUG: "true"
+  APP_URL: http://localhost:8080
+  DB_CONNECTION: mysql
+  DB_HOST: mysql
+  DB_PORT: "3306"
+  DB_DATABASE: dodgeprint
+  DB_USERNAME: root
+  DB_PASSWORD: secret
+  CACHE_DRIVER: redis
+  REDIS_HOST: redis
