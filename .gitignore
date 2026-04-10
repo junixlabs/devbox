@@ -30,6 +30,9 @@ vendor/
 .DS_Store
 Thumbs.db
 
+# Build output
+/dist/
+
 # devbox specific
 devbox.yaml
 *.log
