@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/junixlabs/devbox/internal/config"
+	"github.com/junixlabs/devbox/internal/doctor"
 	devboxssh "github.com/junixlabs/devbox/internal/ssh"
 	"github.com/junixlabs/devbox/internal/tailscale"
 	"github.com/junixlabs/devbox/internal/workspace"
@@ -36,6 +37,7 @@ func main() {
 	rootCmd.AddCommand(listCmd(wm))
 	rootCmd.AddCommand(destroyCmd(wm))
 	rootCmd.AddCommand(sshCmd(wm))
+	rootCmd.AddCommand(doctorCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
@@ -343,6 +345,45 @@ func initCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().String("from-compose", "", "Convert from an existing docker-compose.yml")
+	return cmd
+}
+
+func doctorCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "doctor",
+		Short: "Check prerequisites and server health",
+		Long:  "Run health checks against the local machine and remote server.\nChecks SSH connectivity, Docker, Tailscale, git, and disk space.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			server, _ := cmd.Flags().GetString("server")
+
+			if server == "" {
+				cfg, err := config.LoadFromDir(".")
+				if err == nil {
+					server = cfg.Server
+				}
+			}
+
+			if server == "" {
+				return fmt.Errorf("devbox doctor: no server specified — use --server flag or create devbox.yaml")
+			}
+
+			sshExec, err := devboxssh.New()
+			if err != nil {
+				return fmt.Errorf("devbox doctor: %w", err)
+			}
+			defer sshExec.Close()
+
+			fmt.Printf("Running health checks against %s...\n\n", server)
+
+			allPassed := doctor.Run(cmd.Context(), os.Stdout, sshExec, server)
+			if !allPassed {
+				os.Exit(1)
+			}
+
+			return nil
+		},
+	}
+	cmd.Flags().String("server", "", "Target server (overrides devbox.yaml)")
 	return cmd
 }
 
