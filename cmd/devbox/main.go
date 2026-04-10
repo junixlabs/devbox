@@ -3,7 +3,9 @@ package main
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,13 +14,17 @@ import (
 
 	"github.com/junixlabs/devbox/internal/config"
 	"github.com/junixlabs/devbox/internal/doctor"
+	devboxerr "github.com/junixlabs/devbox/internal/errors"
 	devboxssh "github.com/junixlabs/devbox/internal/ssh"
 	"github.com/junixlabs/devbox/internal/tailscale"
 	"github.com/junixlabs/devbox/internal/workspace"
 	"github.com/spf13/cobra"
 )
 
-var version = "0.1.0-dev"
+var (
+	version = "0.1.0-dev"
+	verbose bool
+)
 
 func main() {
 	wm := workspace.NewManager()
@@ -29,7 +35,15 @@ func main() {
 		Long:         "devbox turns any Linux machine into a ready-to-use dev environment in one command.\nNo cloud, no DevOps required.",
 		Version:      version,
 		SilenceUsage: true,
+		PersistentPreRun: func(cmd *cobra.Command, args []string) {
+			level := slog.LevelInfo
+			if verbose {
+				level = slog.LevelDebug
+			}
+			slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level})))
+		},
 	}
+	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Enable debug logging")
 
 	rootCmd.AddCommand(initCmd())
 	rootCmd.AddCommand(upCmd(wm))
@@ -40,7 +54,16 @@ func main() {
 	rootCmd.AddCommand(doctorCmd())
 
 	if err := rootCmd.Execute(); err != nil {
+		printError(err)
 		os.Exit(1)
+	}
+}
+
+// printError formats errors with suggestions when available.
+func printError(err error) {
+	var s devboxerr.Suggestible
+	if errors.As(err, &s) && s.GetSuggestion() != "" {
+		fmt.Fprintf(os.Stderr, "Hint: %s\n", s.GetSuggestion())
 	}
 }
 

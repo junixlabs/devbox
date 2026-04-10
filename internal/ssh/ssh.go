@@ -5,9 +5,12 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
+
+	devboxerr "github.com/junixlabs/devbox/internal/errors"
 )
 
 // Executor defines the interface for running commands and transferring files over SSH.
@@ -65,10 +68,18 @@ func New(opts ...Option) (Executor, error) {
 	}
 
 	if _, err := exec.LookPath(e.sshBinary); err != nil {
-		return nil, fmt.Errorf("ssh binary not found (%s): %w", e.sshBinary, err)
+		return nil, devboxerr.NewConnectionError(
+			fmt.Sprintf("ssh binary not found (%s)", e.sshBinary),
+			"Install OpenSSH: sudo apt install openssh-client",
+			err,
+		)
 	}
 	if _, err := exec.LookPath(e.scpBinary); err != nil {
-		return nil, fmt.Errorf("scp binary not found (%s): %w", e.scpBinary, err)
+		return nil, devboxerr.NewConnectionError(
+			fmt.Sprintf("scp binary not found (%s)", e.scpBinary),
+			"Install OpenSSH: sudo apt install openssh-client",
+			err,
+		)
 	}
 
 	dir, err := os.MkdirTemp("/tmp", "devbox-ssh-")
@@ -105,6 +116,7 @@ func (e *executor) scpArgs() []string {
 
 func (e *executor) Run(ctx context.Context, host string, command string) (string, string, error) {
 	e.hosts[host] = struct{}{}
+	slog.Debug("ssh exec", "host", host, "command", command)
 	args := append(e.sshArgs(host), command)
 	cmd := exec.CommandContext(ctx, e.sshBinary, args...)
 
@@ -115,26 +127,36 @@ func (e *executor) Run(ctx context.Context, host string, command string) (string
 	err := cmd.Run()
 	if err != nil {
 		return stdoutBuf.String(), stderrBuf.String(),
-			fmt.Errorf("ssh command failed on %s: %w\nstderr: %s", host, err, stderrBuf.String())
+			devboxerr.NewConnectionError(
+				fmt.Sprintf("ssh command failed on %s\nstderr: %s", host, stderrBuf.String()),
+				fmt.Sprintf("Check SSH connectivity: ssh %s", host),
+				err,
+			)
 	}
 	return stdoutBuf.String(), stderrBuf.String(), nil
 }
 
 func (e *executor) RunStream(ctx context.Context, host string, command string, stdout io.Writer, stderr io.Writer) error {
 	e.hosts[host] = struct{}{}
+	slog.Debug("ssh stream", "host", host, "command", command)
 	args := append(e.sshArgs(host), command)
 	cmd := exec.CommandContext(ctx, e.sshBinary, args...)
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("ssh stream command failed on %s: %w", host, err)
+		return devboxerr.NewConnectionError(
+			fmt.Sprintf("ssh stream command failed on %s", host),
+			fmt.Sprintf("Check SSH connectivity: ssh %s", host),
+			err,
+		)
 	}
 	return nil
 }
 
 func (e *executor) CopyTo(ctx context.Context, host string, localPath string, remotePath string) error {
 	e.hosts[host] = struct{}{}
+	slog.Debug("scp", "direction", "to", "host", host, "local", localPath, "remote", remotePath)
 	args := append(e.scpArgs(), localPath, host+":"+remotePath)
 	cmd := exec.CommandContext(ctx, e.scpBinary, args...)
 
@@ -142,13 +164,18 @@ func (e *executor) CopyTo(ctx context.Context, host string, localPath string, re
 	cmd.Stderr = &stderrBuf
 
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("scp to %s failed: %w\nstderr: %s", host, err, stderrBuf.String())
+		return devboxerr.NewConnectionError(
+			fmt.Sprintf("scp to %s failed\nstderr: %s", host, stderrBuf.String()),
+			fmt.Sprintf("Check SSH connectivity: ssh %s", host),
+			err,
+		)
 	}
 	return nil
 }
 
 func (e *executor) CopyFrom(ctx context.Context, host string, remotePath string, localPath string) error {
 	e.hosts[host] = struct{}{}
+	slog.Debug("scp", "direction", "from", "host", host, "remote", remotePath, "local", localPath)
 	args := append(e.scpArgs(), host+":"+remotePath, localPath)
 	cmd := exec.CommandContext(ctx, e.scpBinary, args...)
 
@@ -156,7 +183,11 @@ func (e *executor) CopyFrom(ctx context.Context, host string, remotePath string,
 	cmd.Stderr = &stderrBuf
 
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("scp from %s failed: %w\nstderr: %s", host, err, stderrBuf.String())
+		return devboxerr.NewConnectionError(
+			fmt.Sprintf("scp from %s failed\nstderr: %s", host, stderrBuf.String()),
+			fmt.Sprintf("Check SSH connectivity: ssh %s", host),
+			err,
+		)
 	}
 	return nil
 }

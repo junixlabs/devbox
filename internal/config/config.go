@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	devboxerr "github.com/junixlabs/devbox/internal/errors"
 	"gopkg.in/yaml.v3"
 )
 
@@ -25,20 +26,36 @@ const DefaultConfigFile = "devbox.yaml"
 func Load(path string) (*DevboxConfig, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read config file %s: %w", path, err)
+		return nil, devboxerr.NewConfigError(
+			fmt.Sprintf("failed to read config file %s", path),
+			"Run 'devbox init' to create a devbox.yaml",
+			err,
+		)
 	}
 
 	var cfg DevboxConfig
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return nil, fmt.Errorf("failed to parse config file %s: %w", path, err)
+		return nil, devboxerr.NewConfigError(
+			fmt.Sprintf("failed to parse config file %s", path),
+			"Check YAML syntax in devbox.yaml",
+			err,
+		)
 	}
 
 	if cfg.Name == "" {
-		return nil, fmt.Errorf("config file %s: 'name' is required", path)
+		return nil, devboxerr.NewConfigError(
+			fmt.Sprintf("config file %s: 'name' is required", path),
+			"Add 'name: your-project' to devbox.yaml",
+			nil,
+		)
 	}
 
 	if cfg.Server == "" {
-		return nil, fmt.Errorf("config file %s: 'server' is required", path)
+		return nil, devboxerr.NewConfigError(
+			fmt.Sprintf("config file %s: 'server' is required", path),
+			"Add 'server: your-server' to devbox.yaml",
+			nil,
+		)
 	}
 
 	return &cfg, nil
