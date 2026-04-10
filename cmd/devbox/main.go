@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"text/tabwriter"
 	"time"
 
 	"github.com/junixlabs/devbox/internal/config"
@@ -17,6 +16,7 @@ import (
 	devboxerr "github.com/junixlabs/devbox/internal/errors"
 	devboxssh "github.com/junixlabs/devbox/internal/ssh"
 	"github.com/junixlabs/devbox/internal/tailscale"
+	"github.com/junixlabs/devbox/internal/ui"
 	"github.com/junixlabs/devbox/internal/workspace"
 	"github.com/spf13/cobra"
 )
@@ -24,6 +24,7 @@ import (
 var (
 	version = "0.1.0-dev"
 	verbose bool
+	noColor bool
 )
 
 func main() {
@@ -41,9 +42,11 @@ func main() {
 				level = slog.LevelDebug
 			}
 			slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level})))
+			ui.SetNoColor(noColor)
 		},
 	}
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Enable debug logging")
+	rootCmd.PersistentFlags().BoolVar(&noColor, "no-color", false, "Disable colored output")
 
 	rootCmd.AddCommand(initCmd())
 	rootCmd.AddCommand(upCmd(wm))
@@ -104,14 +107,17 @@ func upCmd(wm workspace.Manager) *cobra.Command {
 				cfg.Branch = b
 			}
 
+			spin := ui.StartSpinner("Starting workspace...")
 			ws, err := wm.Create(cfg.Name, project, cfg.Branch)
 			if err != nil {
+				ui.StopSpinner(spin, false)
 				return fmt.Errorf("devbox up: %w", err)
 			}
 
 			// Expose ports via Tailscale on the remote server
 			sshExec, err := devboxssh.New()
 			if err != nil {
+				ui.StopSpinner(spin, false)
 				return fmt.Errorf("devbox up: %w", err)
 			}
 			defer sshExec.Close()
@@ -122,18 +128,14 @@ func upCmd(wm workspace.Manager) *cobra.Command {
 					fmt.Fprintf(os.Stderr, "Warning: failed to expose port %s (%d): %v\n", name, port, err)
 				}
 			}
+			ui.StopSpinner(spin, true)
 
 			tsStatus, _ := tm.Status()
-
-			fmt.Printf("\nWorkspace %q created on %s\n\n", ws.Name, cfg.Server)
-			fmt.Printf("  SSH:    ssh %s\n", cfg.Server)
+			url := ""
 			if tsStatus != nil {
-				fmt.Printf("  URL:    %s\n", tailscale.WorkspaceURL(tsStatus.Hostname, tsStatus.TailnetName))
+				url = tailscale.WorkspaceURL(tsStatus.Hostname, tsStatus.TailnetName)
 			}
-			for name, port := range cfg.Ports {
-				fmt.Printf("  Port:   %s -> %d\n", name, port)
-			}
-			fmt.Println()
+			ui.PrintUpSuccess(ws.Name, cfg.Server, url, cfg.Ports)
 
 			return nil
 		},
@@ -157,12 +159,16 @@ func stopCmd(wm workspace.Manager) *cobra.Command {
 				return fmt.Errorf("devbox stop: %w", err)
 			}
 
+			spin := ui.StartSpinner("Stopping workspace...")
+
 			if err := wm.Stop(name); err != nil {
+				ui.StopSpinner(spin, false)
 				return fmt.Errorf("devbox stop: %w", err)
 			}
 
 			sshExec, err := devboxssh.New()
 			if err != nil {
+				ui.StopSpinner(spin, false)
 				return fmt.Errorf("devbox stop: %w", err)
 			}
 			defer sshExec.Close()
@@ -174,6 +180,7 @@ func stopCmd(wm workspace.Manager) *cobra.Command {
 				}
 			}
 
+			ui.StopSpinner(spin, true)
 			fmt.Printf("Workspace %q stopped\n", name)
 			return nil
 		},
@@ -197,14 +204,18 @@ func listCmd(wm workspace.Manager) *cobra.Command {
 				return nil
 			}
 
-			w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
-			fmt.Fprintln(w, "NAME\tSTATUS\tSERVER\tPORTS\tCREATED")
+			headers := []string{"NAME", "STATUS", "SERVER", "PORTS", "CREATED"}
+			rows := make([][]string, 0, len(workspaces))
 			for _, ws := range workspaces {
-				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
-					ws.Name, ws.Status, ws.ServerHost,
-					formatPorts(ws.Ports), timeAgo(ws.CreatedAt))
+				rows = append(rows, []string{
+					ws.Name,
+					ui.StatusColor(ws.Status),
+					ws.ServerHost,
+					formatPorts(ws.Ports),
+					timeAgo(ws.CreatedAt),
+				})
 			}
-			w.Flush()
+			ui.PrintTable(headers, rows)
 
 			return nil
 		},
@@ -238,12 +249,16 @@ func destroyCmd(wm workspace.Manager) *cobra.Command {
 				return fmt.Errorf("devbox destroy: %w", err)
 			}
 
+			spin := ui.StartSpinner("Destroying workspace...")
+
 			if err := wm.Destroy(name); err != nil {
+				ui.StopSpinner(spin, false)
 				return fmt.Errorf("devbox destroy: %w", err)
 			}
 
 			sshExec, err := devboxssh.New()
 			if err != nil {
+				ui.StopSpinner(spin, false)
 				return fmt.Errorf("devbox destroy: %w", err)
 			}
 			defer sshExec.Close()
@@ -255,6 +270,7 @@ func destroyCmd(wm workspace.Manager) *cobra.Command {
 				}
 			}
 
+			ui.StopSpinner(spin, true)
 			fmt.Printf("Workspace %q destroyed\n", name)
 			return nil
 		},
