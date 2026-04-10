@@ -137,8 +137,8 @@ func TestWorkspaceURL(t *testing.T) {
 	tests := []struct {
 		hostname, tailnet, want string
 	}{
-		{"myhost", "example.com", "https://myhost.example.com.ts.net"},
-		{"devbox-vps", "tail1234.ts", "https://devbox-vps.tail1234.ts.ts.net"},
+		{"myhost", "tailb5de5c.ts.net", "https://myhost.tailb5de5c.ts.net"},
+		{"devbox-vps", "example.com", "https://devbox-vps.example.com"},
 	}
 	for _, tt := range tests {
 		got := WorkspaceURL(tt.hostname, tt.tailnet)
