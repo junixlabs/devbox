@@ -8,15 +8,22 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// PortRangeConfig defines the allowed port range for auto-allocation.
+type PortRangeConfig struct {
+	Min int `yaml:"min"`
+	Max int `yaml:"max"`
+}
+
 // DevboxConfig represents the per-project devbox.yaml configuration.
 type DevboxConfig struct {
-	Name     string            `yaml:"name"`
-	Server   string            `yaml:"server"`
-	Repo     string            `yaml:"repo"`
-	Branch   string            `yaml:"branch,omitempty"`
-	Services []string          `yaml:"services,omitempty"`
-	Ports    map[string]int    `yaml:"ports,omitempty"`
-	Env      map[string]string `yaml:"env,omitempty"`
+	Name      string            `yaml:"name"`
+	Server    string            `yaml:"server"`
+	Repo      string            `yaml:"repo"`
+	Branch    string            `yaml:"branch,omitempty"`
+	Services  []string          `yaml:"services,omitempty"`
+	Ports     map[string]int    `yaml:"ports,omitempty"`
+	PortRange *PortRangeConfig  `yaml:"port_range,omitempty"`
+	Env       map[string]string `yaml:"env,omitempty"`
 }
 
 // DefaultConfigFile is the default config filename looked up in the project root.
@@ -56,6 +63,23 @@ func Load(path string) (*DevboxConfig, error) {
 			"Add 'server: your-server' to devbox.yaml",
 			nil,
 		)
+	}
+
+	if cfg.PortRange != nil {
+		if cfg.PortRange.Min < 1024 {
+			return nil, devboxerr.NewConfigError(
+				fmt.Sprintf("config file %s: port_range.min must be >= 1024", path),
+				"Set port_range.min to at least 1024",
+				nil,
+			)
+		}
+		if cfg.PortRange.Max <= cfg.PortRange.Min {
+			return nil, devboxerr.NewConfigError(
+				fmt.Sprintf("config file %s: port_range.max must be greater than port_range.min", path),
+				"Ensure port_range.max > port_range.min (e.g. min: 10000, max: 60000)",
+				nil,
+			)
+		}
 	}
 
 	return &cfg, nil
