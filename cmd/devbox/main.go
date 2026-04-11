@@ -22,7 +22,7 @@ import (
 )
 
 var (
-	version = "0.1.0-dev"
+	version = "0.1.0"
 	verbose bool
 	noColor bool
 )
@@ -79,6 +79,24 @@ func remoteRunner(sshExec devboxssh.Executor, server string) tailscale.CommandRu
 		parts = append(parts, args...)
 		stdout, _, err := sshExec.Run(context.Background(), server, strings.Join(parts, " "))
 		return []byte(stdout), err
+	}
+}
+
+// unservePorts tears down Tailscale serve entries for all workspace ports.
+// Errors are logged as warnings but do not stop the operation.
+func unservePorts(ws *workspace.Workspace) {
+	sshExec, err := devboxssh.New()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to connect for port cleanup: %v\n", err)
+		return
+	}
+	defer sshExec.Close()
+
+	tm := tailscale.NewManager(remoteRunner(sshExec, ws.ServerHost))
+	for _, port := range ws.Ports {
+		if err := tm.Unserve(port); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to unserve port %d: %v\n", port, err)
+		}
 	}
 }
 
@@ -192,20 +210,7 @@ func stopCmd(wm workspace.Manager) *cobra.Command {
 				return fmt.Errorf("devbox stop: %w", err)
 			}
 
-			sshExec, err := devboxssh.New()
-			if err != nil {
-				ui.StopSpinner(spin, false)
-				return fmt.Errorf("devbox stop: %w", err)
-			}
-			defer sshExec.Close()
-
-			tm := tailscale.NewManager(remoteRunner(sshExec, ws.ServerHost))
-			for _, port := range ws.Ports {
-				if err := tm.Unserve(port); err != nil {
-					fmt.Fprintf(os.Stderr, "Warning: failed to unserve port %d: %v\n", port, err)
-				}
-			}
-
+			unservePorts(ws)
 			ui.StopSpinner(spin, true)
 			fmt.Printf("Workspace %q stopped\n", name)
 			return nil
@@ -282,20 +287,7 @@ func destroyCmd(wm workspace.Manager) *cobra.Command {
 				return fmt.Errorf("devbox destroy: %w", err)
 			}
 
-			sshExec, err := devboxssh.New()
-			if err != nil {
-				ui.StopSpinner(spin, false)
-				return fmt.Errorf("devbox destroy: %w", err)
-			}
-			defer sshExec.Close()
-
-			tm := tailscale.NewManager(remoteRunner(sshExec, ws.ServerHost))
-			for _, port := range ws.Ports {
-				if err := tm.Unserve(port); err != nil {
-					fmt.Fprintf(os.Stderr, "Warning: failed to unserve port %d: %v\n", port, err)
-				}
-			}
-
+			unservePorts(ws)
 			ui.StopSpinner(spin, true)
 			fmt.Printf("Workspace %q destroyed\n", name)
 			return nil
