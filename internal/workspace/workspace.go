@@ -3,6 +3,8 @@ package workspace
 import (
 	"fmt"
 	"time"
+
+	"github.com/junixlabs/devbox/internal/config"
 )
 
 // Status represents the current state of a workspace.
@@ -26,6 +28,7 @@ type Workspace struct {
 	Ports      map[string]int    `json:"ports"`
 	Env        map[string]string `json:"env"`
 	Services   []string          `json:"services"`
+	Resources  config.Resources  `json:"resources"`
 	CreatedAt  time.Time         `json:"created_at"`
 	StartedAt  *time.Time        `json:"started_at,omitempty"`
 	StoppedAt  *time.Time        `json:"stopped_at,omitempty"`
@@ -33,13 +36,14 @@ type Workspace struct {
 
 // CreateParams bundles the inputs needed to create a workspace.
 type CreateParams struct {
-	Name     string
-	Server   string
-	Repo     string
-	Branch   string
-	Services []string
-	Ports    map[string]int
-	Env      map[string]string
+	Name      string
+	Server    string
+	Repo      string
+	Branch    string
+	Services  []string
+	Ports     map[string]int
+	Env       map[string]string
+	Resources config.Resources
 }
 
 // Manager defines the interface for workspace lifecycle management.

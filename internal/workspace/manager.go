@@ -109,14 +109,19 @@ func (m *remoteManager) Create(params CreateParams) (*Workspace, error) {
 	}
 
 	// Generate compose YAML and deploy via docker manager.
+	var res *config.Resources
+	if !params.Resources.IsZero() {
+		res = &params.Resources
+	}
 	cfg := &config.DevboxConfig{
-		Name:     params.Name,
-		Server:   params.Server,
-		Repo:     params.Repo,
-		Branch:   params.Branch,
-		Services: params.Services,
-		Ports:    params.Ports,
-		Env:      params.Env,
+		Name:      params.Name,
+		Server:    params.Server,
+		Repo:      params.Repo,
+		Branch:    params.Branch,
+		Services:  params.Services,
+		Ports:     params.Ports,
+		Env:       params.Env,
+		Resources: res,
 	}
 	composeYAML, err := docker.GenerateCompose(params.Name, cfg)
 	if err != nil {
@@ -146,6 +151,7 @@ func (m *remoteManager) Create(params CreateParams) (*Workspace, error) {
 		Ports:      params.Ports,
 		Env:        params.Env,
 		Services:   params.Services,
+		Resources:  params.Resources,
 		CreatedAt:  now,
 		StartedAt:  &now,
 	}

@@ -129,15 +129,23 @@ func upCmd(wm workspace.Manager) *cobra.Command {
 				return fmt.Errorf("devbox up: server is required — add 'server:' to devbox.yaml or use --server flag")
 			}
 
+			// Merge resource limits: server defaults <- workspace overrides.
+			globalCfg, _ := config.LoadGlobal()
+			resources := config.MergeResources(
+				globalCfg.ServerResourceDefaults(cfg.Server),
+				cfg.Resources,
+			)
+
 			spin := ui.StartSpinner("Starting workspace...")
 			ws, err := wm.Create(workspace.CreateParams{
-				Name:     cfg.Name,
-				Server:   cfg.Server,
-				Repo:     cfg.Repo,
-				Branch:   cfg.Branch,
-				Services: cfg.Services,
-				Ports:    cfg.Ports,
-				Env:      cfg.Env,
+				Name:      cfg.Name,
+				Server:    cfg.Server,
+				Repo:      cfg.Repo,
+				Branch:    cfg.Branch,
+				Services:  cfg.Services,
+				Ports:     cfg.Ports,
+				Env:       cfg.Env,
+				Resources: resources,
 			})
 			if err != nil {
 				// If workspace already exists, start it instead.
@@ -223,7 +231,7 @@ func listCmd(wm workspace.Manager) *cobra.Command {
 		Use:     "list",
 		Aliases: []string{"ls"},
 		Short:   "List all workspaces",
-		Long:    "List all workspaces across all configured servers.\nShows status, project, branch, and server for each workspace.",
+		Long:    "List all workspaces across all configured servers.\nShows status, resource limits, and server for each workspace.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			workspaces, err := wm.List()
 			if err != nil {
@@ -235,13 +243,25 @@ func listCmd(wm workspace.Manager) *cobra.Command {
 				return nil
 			}
 
-			headers := []string{"NAME", "STATUS", "SERVER", "PORTS", "CREATED"}
+			headers := []string{"NAME", "STATUS", "SERVER", "CPUS", "MEMORY", "PORTS", "CREATED"}
 			rows := make([][]string, 0, len(workspaces))
 			for _, ws := range workspaces {
+				cpus := "-"
+				mem := "-"
+				if !ws.Resources.IsZero() {
+					if ws.Resources.CPUs > 0 {
+						cpus = fmt.Sprintf("%.1f", ws.Resources.CPUs)
+					}
+					if ws.Resources.Memory != "" {
+						mem = ws.Resources.Memory
+					}
+				}
 				rows = append(rows, []string{
 					ws.Name,
 					ui.StatusColor(ws.Status),
 					ws.ServerHost,
+					cpus,
+					mem,
 					formatPorts(ws.Ports),
 					timeAgo(ws.CreatedAt),
 				})
