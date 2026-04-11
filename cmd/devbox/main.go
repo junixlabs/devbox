@@ -108,10 +108,32 @@ func upCmd(wm workspace.Manager) *cobra.Command {
 			}
 
 			spin := ui.StartSpinner("Starting workspace...")
-			ws, err := wm.Create(cfg.Name, project, cfg.Branch)
+			ws, err := wm.Create(workspace.CreateParams{
+				Name:     cfg.Name,
+				Server:   cfg.Server,
+				Repo:     cfg.Repo,
+				Branch:   cfg.Branch,
+				Services: cfg.Services,
+				Ports:    cfg.Ports,
+				Env:      cfg.Env,
+			})
 			if err != nil {
-				ui.StopSpinner(spin, false)
-				return fmt.Errorf("devbox up: %w", err)
+				// If workspace already exists, start it instead.
+				var wsErr *workspace.WorkspaceError
+				if errors.As(err, &wsErr) && strings.Contains(wsErr.Message, "already exists") {
+					if startErr := wm.Start(cfg.Name); startErr != nil {
+						ui.StopSpinner(spin, false)
+						return fmt.Errorf("devbox up: %w", startErr)
+					}
+					ws, err = wm.Get(cfg.Name)
+					if err != nil {
+						ui.StopSpinner(spin, false)
+						return fmt.Errorf("devbox up: %w", err)
+					}
+				} else {
+					ui.StopSpinner(spin, false)
+					return fmt.Errorf("devbox up: %w", err)
+				}
 			}
 
 			// Expose ports via Tailscale on the remote server
