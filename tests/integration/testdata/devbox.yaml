@@ -1,0 +1,5 @@
+name: integration-test
+server: ${DEVBOX_TEST_SERVER}
+repo: ""
+ports:
+  app: 9090
