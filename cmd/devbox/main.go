@@ -9,11 +9,13 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"text/tabwriter"
 	"time"
 
 	"github.com/junixlabs/devbox/internal/config"
 	"github.com/junixlabs/devbox/internal/doctor"
 	devboxerr "github.com/junixlabs/devbox/internal/errors"
+	"github.com/junixlabs/devbox/internal/server"
 	devboxssh "github.com/junixlabs/devbox/internal/ssh"
 	"github.com/junixlabs/devbox/internal/tailscale"
 	"github.com/junixlabs/devbox/internal/ui"
@@ -55,6 +57,7 @@ func main() {
 	rootCmd.AddCommand(destroyCmd(wm))
 	rootCmd.AddCommand(sshCmd(wm))
 	rootCmd.AddCommand(doctorCmd())
+	rootCmd.AddCommand(serverCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		printError(err)
@@ -62,7 +65,6 @@ func main() {
 	}
 }
 
-// printError formats errors with suggestions when available.
 func printError(err error) {
 	var s devboxerr.Suggestible
 	if errors.As(err, &s) && s.GetSuggestion() != "" {
@@ -70,8 +72,6 @@ func printError(err error) {
 	}
 }
 
-// remoteRunner returns a tailscale.CommandRunner that executes commands on a
-// remote server via SSH.
 func remoteRunner(sshExec devboxssh.Executor, server string) tailscale.CommandRunner {
 	return func(command string, args ...string) ([]byte, error) {
 		parts := make([]string, 0, len(args)+1)
@@ -99,7 +99,6 @@ func upCmd(wm workspace.Manager) *cobra.Command {
 				return fmt.Errorf("devbox up: %w", err)
 			}
 
-			// Apply flag overrides
 			if s, _ := cmd.Flags().GetString("server"); s != "" {
 				cfg.Server = s
 			}
@@ -122,7 +121,6 @@ func upCmd(wm workspace.Manager) *cobra.Command {
 				Env:      cfg.Env,
 			})
 			if err != nil {
-				// If workspace already exists, start it instead.
 				var wsErr *workspace.WorkspaceError
 				if errors.As(err, &wsErr) && strings.Contains(wsErr.Message, "already exists") {
 					if startErr := wm.Start(cfg.Name); startErr != nil {
@@ -140,7 +138,6 @@ func upCmd(wm workspace.Manager) *cobra.Command {
 				}
 			}
 
-			// Expose ports via Tailscale on the remote server
 			sshExec, err := devboxssh.New()
 			if err != nil {
 				ui.StopSpinner(spin, false)
@@ -370,7 +367,6 @@ func initCmd() *cobra.Command {
 				return nil
 			}
 
-			// Detect existing configs
 			detected := config.DetectExistingConfigs(".")
 			for _, d := range detected {
 				switch d.Type {
@@ -386,7 +382,6 @@ func initCmd() *cobra.Command {
 				fmt.Fprintln(w)
 			}
 
-			// Interactive prompts
 			dirName := filepath.Base(mustGetwd())
 			name := config.PromptString(w, scanner, "Project name", dirName)
 			server := config.PromptRequired(w, scanner, "Server")
@@ -483,4 +478,194 @@ func timeAgo(t time.Time) string {
 	default:
 		return fmt.Sprintf("%dd ago", int(d.Hours()/24))
 	}
+}
+
+func serverCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "server",
+		Short: "Manage the server pool",
+		Long:  "Add, remove, and list servers in the devbox server pool.\nServers are stored in ~/.config/devbox/servers.yaml.",
+	}
+	cmd.AddCommand(serverAddCmd())
+	cmd.AddCommand(serverRemoveCmd())
+	cmd.AddCommand(serverListCmd())
+	return cmd
+}
+
+func serverAddCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "add <name> <host>",
+		Short: "Add a server to the pool",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			name, host := args[0], args[1]
+
+			configPath, err := server.DefaultConfigPath()
+			if err != nil {
+				return fmt.Errorf("devbox server add: %w", err)
+			}
+
+			pool, err := server.NewFilePool(configPath, nil)
+			if err != nil {
+				return fmt.Errorf("devbox server add: %w", err)
+			}
+
+			var opts []server.AddOption
+			if u, _ := cmd.Flags().GetString("user"); u != "" {
+				opts = append(opts, server.WithUser(u))
+			}
+			if p, _ := cmd.Flags().GetInt("port"); p != 0 {
+				opts = append(opts, server.WithPort(p))
+			}
+
+			srv, err := pool.Add(name, host, opts...)
+			if err != nil {
+				return fmt.Errorf("devbox server add: %w", err)
+			}
+
+			fmt.Printf("Server %q (%s) added\n", srv.Name, srv.Host)
+
+			sshExec, err := devboxssh.New()
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: could not check server health: %v\n", err)
+				return nil
+			}
+			defer sshExec.Close()
+
+			checkPool, err := server.NewFilePool(configPath, sshExec)
+			if err != nil {
+				return nil
+			}
+
+			status, err := checkPool.HealthCheck(name)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: health check failed: %v\n", err)
+				return nil
+			}
+
+			if !status.SSH || !status.Docker || !status.Tailscale {
+				fmt.Fprintf(os.Stderr, "Warning: some health checks failed — SSH=%v Docker=%v Tailscale=%v\n",
+					status.SSH, status.Docker, status.Tailscale)
+			}
+
+			return nil
+		},
+	}
+	cmd.Flags().String("user", "", "SSH user (default: current user)")
+	cmd.Flags().Int("port", 0, "SSH port (default: 22)")
+	return cmd
+}
+
+func serverRemoveCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:     "remove <name>",
+		Aliases: []string{"rm"},
+		Short:   "Remove a server from the pool",
+		Args:    cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			name := args[0]
+
+			configPath, err := server.DefaultConfigPath()
+			if err != nil {
+				return fmt.Errorf("devbox server remove: %w", err)
+			}
+
+			pool, err := server.NewFilePool(configPath, nil)
+			if err != nil {
+				return fmt.Errorf("devbox server remove: %w", err)
+			}
+
+			if err := pool.Remove(name); err != nil {
+				return fmt.Errorf("devbox server remove: %w", err)
+			}
+
+			fmt.Printf("Server %q removed\n", name)
+			return nil
+		},
+	}
+}
+
+func serverListCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:     "list",
+		Aliases: []string{"ls"},
+		Short:   "List servers in the pool",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			configPath, err := server.DefaultConfigPath()
+			if err != nil {
+				return fmt.Errorf("devbox server list: %w", err)
+			}
+
+			check, _ := cmd.Flags().GetBool("check")
+
+			var sshExec devboxssh.Executor
+			if check {
+				sshExec, err = devboxssh.New()
+				if err != nil {
+					return fmt.Errorf("devbox server list: %w", err)
+				}
+				defer sshExec.Close()
+			}
+
+			pool, err := server.NewFilePool(configPath, sshExec)
+			if err != nil {
+				return fmt.Errorf("devbox server list: %w", err)
+			}
+
+			servers, err := pool.List()
+			if err != nil {
+				return fmt.Errorf("devbox server list: %w", err)
+			}
+
+			if len(servers) == 0 {
+				fmt.Println("No servers in pool. Add one with: devbox server add <name> <host>")
+				return nil
+			}
+
+			w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+			if check {
+				fmt.Fprintln(w, "NAME\tHOST\tUSER\tPORT\tSSH\tDOCKER\tTAILSCALE\tADDED")
+			} else {
+				fmt.Fprintln(w, "NAME\tHOST\tUSER\tPORT\tADDED")
+			}
+
+			for _, srv := range servers {
+				user := srv.User
+				if user == "" {
+					user = "-"
+				}
+				port := "-"
+				if srv.Port != 0 {
+					port = fmt.Sprintf("%d", srv.Port)
+				}
+				added := timeAgo(srv.AddedAt)
+
+				if check {
+					status, err := pool.HealthCheck(srv.Name)
+					if err != nil {
+						fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+							srv.Name, srv.Host, user, port, "err", "err", "err", added)
+						continue
+					}
+					fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+						srv.Name, srv.Host, user, port,
+						checkMark(status.SSH), checkMark(status.Docker), checkMark(status.Tailscale), added)
+				} else {
+					fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
+						srv.Name, srv.Host, user, port, added)
+				}
+			}
+
+			return w.Flush()
+		},
+	}
+	cmd.Flags().Bool("check", false, "Run health checks against each server")
+	return cmd
+}
+
+func checkMark(ok bool) string {
+	if ok {
+		return "ok"
+	}
+	return "fail"
 }
