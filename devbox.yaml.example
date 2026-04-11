@@ -1,17 +1,19 @@
 # devbox.yaml — Project workspace configuration
 # Copy this file to your project root as devbox.yaml and customize.
+# See docs/CONFIG.md for full field reference.
 
-# Workspace name (used as container prefix and Tailscale hostname)
+# Workspace name (required — used as container prefix and Tailscale hostname)
 name: dodgeprint
 
-# Target server (must be reachable via SSH and Tailscale)
+# Target server (required — must be reachable via SSH and Tailscale)
 server: dev1
 
 # Git repository to clone into the workspace
 repo: git@github.com:junixlabs/dodgeprint-source.git
 
 # Branch to checkout (optional, defaults to main)
-# branch: feature/new-ui
+# Can also be overridden with: devbox up --branch feature/new-ui
+branch: main
 
 # Services to run alongside the app (Docker images)
 services:

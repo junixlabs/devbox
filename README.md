@@ -1,78 +1,98 @@
 # devbox
 
-Turn any Linux machine into a ready-to-use dev environment in one command.
+Turn any Linux machine into a ready-to-use dev environment in one command — no cloud, no DevOps required.
+
+## Why devbox?
+
+- **Codespaces** is managed but expensive ($40–80/dev/month)
+- **Coder** is self-hosted but complex (needs Kubernetes)
+- **DevPod** is simple but abandoned (last release June 2024)
+- **devbox** is simple + self-hosted + free. You bring any Linux machine — old desktop, mini PC, cheap VPS — and devbox handles the rest.
+
+## Features
+
+- One-command workspace creation with `devbox up`
+- Docker-based isolation — each workspace gets its own containers
+- Tailscale networking — HTTPS, DNS, and access control out of the box
+- Multi-workspace — run parallel workspaces for different branches or agents
+- Works with any editor — Zed (recommended), VS Code, terminal SSH
+- Import existing `docker-compose.yml` with `devbox init --from-compose`
+- Health checks with `devbox doctor`
+
+## Install
+
+### Download binary
+
+```bash
+# Linux (amd64)
+curl -fsSL https://github.com/junixlabs/devbox/releases/latest/download/devbox-linux-amd64 -o devbox
+chmod +x devbox && sudo mv devbox /usr/local/bin/
+
+# Linux (arm64)
+curl -fsSL https://github.com/junixlabs/devbox/releases/latest/download/devbox-linux-arm64 -o devbox
+chmod +x devbox && sudo mv devbox /usr/local/bin/
+
+# macOS (Apple Silicon)
+curl -fsSL https://github.com/junixlabs/devbox/releases/latest/download/devbox-darwin-arm64 -o devbox
+chmod +x devbox && sudo mv devbox /usr/local/bin/
+
+# macOS (Intel)
+curl -fsSL https://github.com/junixlabs/devbox/releases/latest/download/devbox-darwin-amd64 -o devbox
+chmod +x devbox && sudo mv devbox /usr/local/bin/
+```
+
+### Build from source
+
+```bash
+git clone https://github.com/junixlabs/devbox.git
+cd devbox
+make build
+sudo mv dist/devbox /usr/local/bin/
+```
+
+Requires Go 1.22+.
+
+## Quick start
+
+```bash
+# 1. Verify your server is ready
+devbox doctor --server dev1
+
+# 2. Create a config in your project
+devbox init
+
+# 3. Start a workspace
+devbox up
+
+# 4. Connect
+devbox ssh my-project
+```
+
+See [docs/QUICKSTART.md](docs/QUICKSTART.md) for a detailed step-by-step guide.
+
+## Commands
+
+| Command | Description |
+|---------|-------------|
+| `devbox init` | Create a `devbox.yaml` config interactively |
+| `devbox up [project]` | Create and start a workspace |
+| `devbox stop <workspace>` | Stop a running workspace |
+| `devbox list` | List all workspaces |
+| `devbox destroy <workspace>` | Permanently remove a workspace |
+| `devbox ssh <workspace>` | SSH into a workspace |
+| `devbox doctor [--server name]` | Check prerequisites and server health |
 
 ## Prerequisites
 
 - A Linux server (Ubuntu 22.04+ recommended) accessible via SSH
 - [Docker](https://docs.docker.com/engine/install/) installed on the server
 - [Tailscale](https://tailscale.com/download) installed on both your machine and the server
-- Go 1.22+ (to build from source)
 
-## Install
+## Documentation
 
-```bash
-# Build from source
-git clone https://github.com/junixlabs/devbox.git
-cd devbox
-go build -o devbox ./cmd/devbox/
-sudo mv devbox /usr/local/bin/
-```
-
-## Quick start
-
-### 1. Configure your server
-
-Make sure you can SSH into your server:
-
-```bash
-ssh dev1 "hostname"
-```
-
-### 2. Add devbox.yaml to your project
-
-```yaml
-name: my-project
-server: dev1
-repo: git@github.com:your-org/your-repo.git
-services:
-  - mysql:8.0
-  - redis:7-alpine
-ports:
-  app: 8080
-  mysql: 3306
-env:
-  APP_ENV: local
-  DB_HOST: mysql
-```
-
-See `devbox.yaml.example` for a full example.
-
-### 3. Start a workspace
-
-```bash
-devbox up my-project
-```
-
-### 4. Connect
-
-```bash
-# SSH into the workspace
-devbox ssh my-project
-
-# Or open in Zed
-zed ssh://dev1/workspaces/my-project
-```
-
-## Commands
-
-| Command | Description |
-|---------|-------------|
-| `devbox up [project]` | Create and start a workspace |
-| `devbox stop <workspace>` | Stop a running workspace |
-| `devbox list` | List all workspaces |
-| `devbox destroy <workspace>` | Permanently remove a workspace |
-| `devbox ssh <workspace>` | SSH into a workspace |
+- [Quick Start Guide](docs/QUICKSTART.md) — from install to `devbox up` in 15 minutes
+- [Configuration Reference](docs/CONFIG.md) — all `devbox.yaml` fields explained
+- [Troubleshooting](docs/TROUBLESHOOTING.md) — common issues and fixes
 
 ## License
 
