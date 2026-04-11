@@ -1,0 +1,5 @@
+name: integration-test-conflict
+server: ${DEVBOX_TEST_SERVER}
+repo: ""
+ports:
+  app: 9090
