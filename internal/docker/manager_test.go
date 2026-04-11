@@ -190,6 +190,46 @@ func TestGenerateCompose_DuplicateServiceNames(t *testing.T) {
 	}
 }
 
+func TestGenerateCompose_DevcontainerMultiplePorts(t *testing.T) {
+	// Simulates a devcontainer.json config mapped to DevboxConfig:
+	// single service with multiple forwarded ports using prefixed keys.
+	cfg := &config.DevboxConfig{
+		Name:     "dc-project",
+		Services: []string{"node:20"},
+		Ports:    map[string]int{"node": 3000, "node-2": 8080},
+	}
+
+	data, err := GenerateCompose("dc-project", cfg)
+	if err != nil {
+		t.Fatalf("GenerateCompose() error: %v", err)
+	}
+
+	var cf composeFile
+	if err := yaml.Unmarshal(data, &cf); err != nil {
+		t.Fatalf("unmarshal error: %v", err)
+	}
+
+	node, ok := cf.Services["node"]
+	if !ok {
+		t.Fatal("missing node service")
+	}
+	if len(node.Ports) != 2 {
+		t.Fatalf("node.Ports count = %d, want 2", len(node.Ports))
+	}
+
+	// Verify both ports are present (map iteration order is random).
+	portSet := make(map[string]bool)
+	for _, p := range node.Ports {
+		portSet[p] = true
+	}
+	if !portSet["3000:3000"] {
+		t.Error("missing port 3000:3000")
+	}
+	if !portSet["8080:8080"] {
+		t.Error("missing port 8080:8080")
+	}
+}
+
 // --- Mock SSH executor ---
 
 type sshCall struct {
