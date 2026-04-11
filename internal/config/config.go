@@ -1,8 +1,10 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	devboxerr "github.com/junixlabs/devbox/internal/errors"
 	"gopkg.in/yaml.v3"
@@ -62,7 +64,34 @@ func Load(path string) (*DevboxConfig, error) {
 }
 
 // LoadFromDir looks for devbox.yaml in the given directory and loads it.
+// If devbox.yaml is not found, it falls back to .devcontainer/devcontainer.json.
 func LoadFromDir(dir string) (*DevboxConfig, error) {
 	path := dir + "/" + DefaultConfigFile
-	return Load(path)
+	cfg, err := Load(path)
+	if err == nil {
+		return cfg, nil
+	}
+
+	// Only fall back to devcontainer.json if devbox.yaml doesn't exist.
+	// errors.Is walks the Unwrap chain, so it finds os.ErrNotExist
+	// even when wrapped inside a ConfigError.
+	if !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+
+	dcPath := filepath.Join(dir, devcontainerPath)
+	dc, dcErr := LoadDevcontainer(dcPath)
+	if dcErr != nil {
+		// Neither config found — return the original devbox.yaml error.
+		return nil, err
+	}
+
+	dirName := filepath.Base(dir)
+	if dirName == "." || dirName == "/" {
+		if abs, absErr := filepath.Abs(dir); absErr == nil {
+			dirName = filepath.Base(abs)
+		}
+	}
+
+	return dc.ToDevboxConfig(dirName), nil
 }

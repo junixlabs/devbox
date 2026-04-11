@@ -107,6 +107,10 @@ func upCmd(wm workspace.Manager) *cobra.Command {
 				cfg.Branch = b
 			}
 
+			if cfg.Server == "" {
+				return fmt.Errorf("devbox up: server is required — add 'server:' to devbox.yaml or use --server flag")
+			}
+
 			spin := ui.StartSpinner("Starting workspace...")
 			ws, err := wm.Create(workspace.CreateParams{
 				Name:     cfg.Name,
