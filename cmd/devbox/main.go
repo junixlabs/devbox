@@ -24,7 +24,7 @@ import (
 )
 
 var (
-	version = "0.1.0-dev"
+	version = "0.1.0"
 	verbose bool
 	noColor bool
 )
@@ -65,6 +65,7 @@ func main() {
 	}
 }
 
+// printError formats errors with suggestions when available.
 func printError(err error) {
 	var s devboxerr.Suggestible
 	if errors.As(err, &s) && s.GetSuggestion() != "" {
@@ -72,6 +73,8 @@ func printError(err error) {
 	}
 }
 
+// remoteRunner returns a tailscale.CommandRunner that executes commands on a
+// remote server via SSH.
 func remoteRunner(sshExec devboxssh.Executor, server string) tailscale.CommandRunner {
 	return func(command string, args ...string) ([]byte, error) {
 		parts := make([]string, 0, len(args)+1)
@@ -79,6 +82,24 @@ func remoteRunner(sshExec devboxssh.Executor, server string) tailscale.CommandRu
 		parts = append(parts, args...)
 		stdout, _, err := sshExec.Run(context.Background(), server, strings.Join(parts, " "))
 		return []byte(stdout), err
+	}
+}
+
+// unservePorts tears down Tailscale serve entries for all workspace ports.
+// Errors are logged as warnings but do not stop the operation.
+func unservePorts(ws *workspace.Workspace) {
+	sshExec, err := devboxssh.New()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to connect for port cleanup: %v\n", err)
+		return
+	}
+	defer sshExec.Close()
+
+	tm := tailscale.NewManager(remoteRunner(sshExec, ws.ServerHost))
+	for _, port := range ws.Ports {
+		if err := tm.Unserve(port); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to unserve port %d: %v\n", port, err)
+		}
 	}
 }
 
@@ -99,6 +120,7 @@ func upCmd(wm workspace.Manager) *cobra.Command {
 				return fmt.Errorf("devbox up: %w", err)
 			}
 
+			// Apply flag overrides
 			if s, _ := cmd.Flags().GetString("server"); s != "" {
 				cfg.Server = s
 			}
@@ -121,6 +143,7 @@ func upCmd(wm workspace.Manager) *cobra.Command {
 				Env:      cfg.Env,
 			})
 			if err != nil {
+				// If workspace already exists, start it instead.
 				var wsErr *workspace.WorkspaceError
 				if errors.As(err, &wsErr) && strings.Contains(wsErr.Message, "already exists") {
 					if startErr := wm.Start(cfg.Name); startErr != nil {
@@ -138,6 +161,7 @@ func upCmd(wm workspace.Manager) *cobra.Command {
 				}
 			}
 
+			// Expose ports via Tailscale on the remote server
 			sshExec, err := devboxssh.New()
 			if err != nil {
 				ui.StopSpinner(spin, false)
@@ -189,20 +213,7 @@ func stopCmd(wm workspace.Manager) *cobra.Command {
 				return fmt.Errorf("devbox stop: %w", err)
 			}
 
-			sshExec, err := devboxssh.New()
-			if err != nil {
-				ui.StopSpinner(spin, false)
-				return fmt.Errorf("devbox stop: %w", err)
-			}
-			defer sshExec.Close()
-
-			tm := tailscale.NewManager(remoteRunner(sshExec, ws.ServerHost))
-			for _, port := range ws.Ports {
-				if err := tm.Unserve(port); err != nil {
-					fmt.Fprintf(os.Stderr, "Warning: failed to unserve port %d: %v\n", port, err)
-				}
-			}
-
+			unservePorts(ws)
 			ui.StopSpinner(spin, true)
 			fmt.Printf("Workspace %q stopped\n", name)
 			return nil
@@ -279,20 +290,7 @@ func destroyCmd(wm workspace.Manager) *cobra.Command {
 				return fmt.Errorf("devbox destroy: %w", err)
 			}
 
-			sshExec, err := devboxssh.New()
-			if err != nil {
-				ui.StopSpinner(spin, false)
-				return fmt.Errorf("devbox destroy: %w", err)
-			}
-			defer sshExec.Close()
-
-			tm := tailscale.NewManager(remoteRunner(sshExec, ws.ServerHost))
-			for _, port := range ws.Ports {
-				if err := tm.Unserve(port); err != nil {
-					fmt.Fprintf(os.Stderr, "Warning: failed to unserve port %d: %v\n", port, err)
-				}
-			}
-
+			unservePorts(ws)
 			ui.StopSpinner(spin, true)
 			fmt.Printf("Workspace %q destroyed\n", name)
 			return nil
@@ -367,6 +365,7 @@ func initCmd() *cobra.Command {
 				return nil
 			}
 
+			// Detect existing configs
 			detected := config.DetectExistingConfigs(".")
 			for _, d := range detected {
 				switch d.Type {
@@ -382,6 +381,7 @@ func initCmd() *cobra.Command {
 				fmt.Fprintln(w)
 			}
 
+			// Interactive prompts
 			dirName := filepath.Base(mustGetwd())
 			name := config.PromptString(w, scanner, "Project name", dirName)
 			server := config.PromptRequired(w, scanner, "Server")
@@ -505,7 +505,16 @@ func serverAddCmd() *cobra.Command {
 				return fmt.Errorf("devbox server add: %w", err)
 			}
 
-			pool, err := server.NewFilePool(configPath, nil)
+			sshExec, err := devboxssh.New()
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: could not check server health: %v\n", err)
+				sshExec = nil
+			}
+			if sshExec != nil {
+				defer sshExec.Close()
+			}
+
+			pool, err := server.NewFilePool(configPath, sshExec)
 			if err != nil {
 				return fmt.Errorf("devbox server add: %w", err)
 			}
@@ -525,19 +534,7 @@ func serverAddCmd() *cobra.Command {
 
 			fmt.Printf("Server %q (%s) added\n", srv.Name, srv.Host)
 
-			sshExec, err := devboxssh.New()
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Warning: could not check server health: %v\n", err)
-				return nil
-			}
-			defer sshExec.Close()
-
-			checkPool, err := server.NewFilePool(configPath, sshExec)
-			if err != nil {
-				return nil
-			}
-
-			status, err := checkPool.HealthCheck(name)
+			status, err := pool.HealthCheck(name)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Warning: health check failed: %v\n", err)
 				return nil
@@ -622,6 +619,14 @@ func serverListCmd() *cobra.Command {
 				return nil
 			}
 
+			var healthMap map[string]*server.HealthStatus
+			if check {
+				healthMap, err = pool.HealthCheckAll()
+				if err != nil {
+					return fmt.Errorf("devbox server list: health check failed: %w", err)
+				}
+			}
+
 			w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 			if check {
 				fmt.Fprintln(w, "NAME\tHOST\tUSER\tPORT\tSSH\tDOCKER\tTAILSCALE\tADDED")
@@ -641,8 +646,8 @@ func serverListCmd() *cobra.Command {
 				added := timeAgo(srv.AddedAt)
 
 				if check {
-					status, err := pool.HealthCheck(srv.Name)
-					if err != nil {
+					status := healthMap[srv.Name]
+					if status == nil {
 						fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 							srv.Name, srv.Host, user, port, "err", "err", "err", added)
 						continue

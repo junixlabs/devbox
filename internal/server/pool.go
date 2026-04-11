@@ -120,10 +120,26 @@ func (p *filePool) HealthCheck(name string) (*HealthStatus, error) {
 	if srv == nil {
 		return nil, fmt.Errorf("server %q not found", name)
 	}
+	return p.checkServer(srv), nil
+}
 
+func (p *filePool) HealthCheckAll() (map[string]*HealthStatus, error) {
+	cfg, err := p.load()
+	if err != nil {
+		return nil, err
+	}
+	result := make(map[string]*HealthStatus, len(cfg.Servers))
+	for i := range cfg.Servers {
+		result[cfg.Servers[i].Name] = p.checkServer(&cfg.Servers[i])
+	}
+	return result, nil
+}
+
+// checkServer runs health checks against a single server without reloading config.
+func (p *filePool) checkServer(srv *Server) *HealthStatus {
 	status := &HealthStatus{CheckedAt: time.Now()}
 	if p.sshExec == nil {
-		return status, nil
+		return status
 	}
 
 	host := sshHost(srv)
@@ -145,13 +161,19 @@ func (p *filePool) HealthCheck(name string) (*HealthStatus, error) {
 		status.Tailscale = true
 	}
 
-	return status, nil
+	return status
 }
 
 func sshHost(s *Server) string {
-	host := s.Host
-	if s.User != "" {
-		host = s.User + "@" + host
+	if s.Port != 0 && s.Port != 22 {
+		// Use SSH URI syntax for non-default ports: ssh://[user@]host:port
+		if s.User != "" {
+			return fmt.Sprintf("ssh://%s@%s:%d", s.User, s.Host, s.Port)
+		}
+		return fmt.Sprintf("ssh://%s:%d", s.Host, s.Port)
 	}
-	return host
+	if s.User != "" {
+		return s.User + "@" + s.Host
+	}
+	return s.Host
 }

@@ -30,6 +30,8 @@ type Pool interface {
 	Remove(name string) error
 	List() ([]Server, error)
 	HealthCheck(name string) (*HealthStatus, error)
+	// HealthCheckAll checks all servers in a single pass (one file read).
+	HealthCheckAll() (map[string]*HealthStatus, error)
 }
 
 // AddOption configures optional fields when adding a server.
