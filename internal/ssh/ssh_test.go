@@ -151,6 +151,44 @@ func TestRunStreamErrorNonexistentHost(t *testing.T) {
 	}
 }
 
+func TestCopyToErrorNonexistentHost(t *testing.T) {
+	e, err := New()
+	if err != nil {
+		t.Fatalf("New() failed: %v", err)
+	}
+	defer e.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*1e9)
+	defer cancel()
+
+	err = e.CopyTo(ctx, "nonexistent-host-12345.invalid", "/dev/null", "/tmp/test")
+	if err == nil {
+		t.Fatal("expected error for nonexistent host")
+	}
+	if !strings.Contains(err.Error(), "scp to") {
+		t.Errorf("error = %q, want it to contain %q", err.Error(), "scp to")
+	}
+}
+
+func TestCopyFromErrorNonexistentHost(t *testing.T) {
+	e, err := New()
+	if err != nil {
+		t.Fatalf("New() failed: %v", err)
+	}
+	defer e.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*1e9)
+	defer cancel()
+
+	err = e.CopyFrom(ctx, "nonexistent-host-12345.invalid", "/tmp/test", filepath.Join(t.TempDir(), "out"))
+	if err == nil {
+		t.Fatal("expected error for nonexistent host")
+	}
+	if !strings.Contains(err.Error(), "scp from") {
+		t.Errorf("error = %q, want it to contain %q", err.Error(), "scp from")
+	}
+}
+
 func TestClose(t *testing.T) {
 	e, err := New()
 	if err != nil {
