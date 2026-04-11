@@ -1,6 +1,9 @@
 package workspace
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 // Status represents the current state of a workspace.
 type Status string
@@ -19,17 +22,30 @@ type Workspace struct {
 	Branch     string            `json:"branch"`
 	Status     Status            `json:"status"`
 	ServerHost string            `json:"server_host"`
+	Repo       string            `json:"repo"`
 	Ports      map[string]int    `json:"ports"`
 	Env        map[string]string `json:"env"`
+	Services   []string          `json:"services"`
 	CreatedAt  time.Time         `json:"created_at"`
 	StartedAt  *time.Time        `json:"started_at,omitempty"`
 	StoppedAt  *time.Time        `json:"stopped_at,omitempty"`
 }
 
+// CreateParams bundles the inputs needed to create a workspace.
+type CreateParams struct {
+	Name     string
+	Server   string
+	Repo     string
+	Branch   string
+	Services []string
+	Ports    map[string]int
+	Env      map[string]string
+}
+
 // Manager defines the interface for workspace lifecycle management.
 type Manager interface {
 	// Create provisions a new workspace on the target server.
-	Create(name string, project string, branch string) (*Workspace, error)
+	Create(params CreateParams) (*Workspace, error)
 
 	// Start starts a stopped workspace.
 	Start(name string) error
@@ -49,3 +65,20 @@ type Manager interface {
 	// SSH opens an interactive SSH session into a workspace.
 	SSH(name string) error
 }
+
+// WorkspaceError represents a workspace-related error with a suggestion.
+type WorkspaceError struct {
+	Message    string
+	Suggestion string
+	Err        error
+}
+
+func (e *WorkspaceError) Error() string {
+	if e.Err != nil {
+		return fmt.Sprintf("%s: %v", e.Message, e.Err)
+	}
+	return e.Message
+}
+
+func (e *WorkspaceError) Unwrap() error        { return e.Err }
+func (e *WorkspaceError) GetSuggestion() string { return e.Suggestion }
