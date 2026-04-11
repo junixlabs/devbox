@@ -185,11 +185,13 @@ func TestToDevboxConfig_Mapping(t *testing.T) {
 	if len(cfg.Services) != 1 || cfg.Services[0] != "golang:1.22" {
 		t.Errorf("Services = %v, want [golang:1.22]", cfg.Services)
 	}
-	if cfg.Ports["port-8080"] != 8080 {
-		t.Errorf("Ports[port-8080] = %d, want 8080", cfg.Ports["port-8080"])
+	// First port uses service name as key, subsequent use svcName-N.
+	// "golang:1.22" → service name "golang"
+	if cfg.Ports["golang"] != 8080 {
+		t.Errorf("Ports[golang] = %d, want 8080", cfg.Ports["golang"])
 	}
-	if cfg.Ports["port-3000"] != 3000 {
-		t.Errorf("Ports[port-3000] = %d, want 3000", cfg.Ports["port-3000"])
+	if cfg.Ports["golang-2"] != 3000 {
+		t.Errorf("Ports[golang-2] = %d, want 3000", cfg.Ports["golang-2"])
 	}
 	if cfg.Env["APP_ENV"] != "dev" {
 		t.Errorf("Env[APP_ENV] = %q, want %q", cfg.Env["APP_ENV"], "dev")
@@ -266,8 +268,9 @@ func TestLoadFromDir_DevcontainerFallback(t *testing.T) {
 	if len(cfg.Services) != 1 || cfg.Services[0] != "node:20" {
 		t.Errorf("Services = %v, want [node:20]", cfg.Services)
 	}
-	if cfg.Ports["port-3000"] != 3000 {
-		t.Errorf("Ports[port-3000] = %d, want 3000", cfg.Ports["port-3000"])
+	// Port key should be service name ("node" from "node:20").
+	if cfg.Ports["node"] != 3000 {
+		t.Errorf("Ports[node] = %d, want 3000", cfg.Ports["node"])
 	}
 	// Server should be empty — must come from --server flag.
 	if cfg.Server != "" {

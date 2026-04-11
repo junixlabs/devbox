@@ -40,6 +40,9 @@ func stripJSONC(data []byte) []byte {
 			for j < len(src) {
 				if src[j] == '\\' {
 					j += 2
+					if j >= len(src) {
+						break
+					}
 					continue
 				}
 				if src[j] == '"' {
@@ -155,9 +158,21 @@ func (dc *DevcontainerConfig) ToDevboxConfig(dirName string) *DevboxConfig {
 	}
 
 	if len(dc.ForwardPorts) > 0 {
+		// Extract service name from image (e.g. "node:20" → "node").
+		svcName := dc.Image
+		if i := strings.LastIndex(svcName, ":"); i != -1 {
+			svcName = svcName[:i]
+		}
+		if i := strings.LastIndex(svcName, "/"); i != -1 {
+			svcName = svcName[i+1:]
+		}
+
 		cfg.Ports = make(map[string]int, len(dc.ForwardPorts))
-		for _, port := range dc.ForwardPorts {
-			key := fmt.Sprintf("port-%d", port)
+		for idx, port := range dc.ForwardPorts {
+			key := svcName
+			if idx > 0 {
+				key = fmt.Sprintf("%s-%d", svcName, idx+1)
+			}
 			cfg.Ports[key] = port
 		}
 	}

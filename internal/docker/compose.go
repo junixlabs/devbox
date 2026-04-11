@@ -81,8 +81,10 @@ func GenerateCompose(workspaceName string, cfg *config.DevboxConfig) ([]byte, er
 		}
 
 		// Assign matching ports.
+		// Matches exact name ("redis") and prefixed names ("redis-2", "redis-3")
+		// used when a devcontainer forwards multiple ports to the same service.
 		for portName, portNum := range cfg.Ports {
-			if portName == svcName {
+			if portName == svcName || strings.HasPrefix(portName, svcName+"-") {
 				svc.Ports = append(svc.Ports, fmt.Sprintf("%d:%d", portNum, portNum))
 				assignedPorts[portName] = true
 			}
