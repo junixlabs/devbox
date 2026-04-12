@@ -17,6 +17,8 @@ import (
 	devboxerr "github.com/junixlabs/devbox/internal/errors"
 	"github.com/junixlabs/devbox/internal/identity"
 	"github.com/junixlabs/devbox/internal/metrics"
+	"github.com/junixlabs/devbox/internal/plugin"
+	"github.com/junixlabs/devbox/internal/plugin/docker"
 	"github.com/junixlabs/devbox/internal/server"
 	"github.com/junixlabs/devbox/internal/snapshot"
 	devboxssh "github.com/junixlabs/devbox/internal/ssh"
@@ -72,6 +74,7 @@ func main() {
 	rootCmd.AddCommand(tuiCmd(wm))
 	rootCmd.AddCommand(snapshotCmd())
 	rootCmd.AddCommand(restoreCmd())
+	rootCmd.AddCommand(pluginCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		printError(err)
@@ -1234,4 +1237,159 @@ func formatBytes(b int64) string {
 		return "0B"
 	}
 	return formatBytesShort(uint64(b))
+}
+
+func pluginCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "plugin",
+		Short: "Manage plugins",
+		Long:  "List, install, and remove devbox plugins.\nPlugins extend devbox with custom providers (Docker, Podman, LXC) and lifecycle hooks.",
+	}
+	cmd.AddCommand(pluginListCmd())
+	cmd.AddCommand(pluginInstallCmd())
+	cmd.AddCommand(pluginRemoveCmd())
+	return cmd
+}
+
+func pluginListCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:     "list",
+		Aliases: []string{"ls"},
+		Short:   "List installed plugins",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			registry := plugin.NewRegistry()
+
+			// Register built-in Docker provider.
+			dockerProvider := docker.New(nil)
+			dockerManifest := docker.Manifest()
+			_ = registry.RegisterProvider("docker", dockerProvider, dockerManifest)
+
+			// Discover external plugins.
+			pluginDir := plugin.DefaultPluginDir()
+			if err := registry.Discover(pluginDir); err != nil {
+				slog.Warn("plugin discovery failed", "error", err)
+			}
+
+			plugins := registry.ListPlugins()
+			if len(plugins) == 0 {
+				fmt.Println("No plugins installed")
+				return nil
+			}
+
+			w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+			fmt.Fprintln(w, "NAME\tVERSION\tTYPE\tDESCRIPTION")
+			for _, p := range plugins {
+				builtIn := ""
+				if p.BuiltIn {
+					builtIn = " (built-in)"
+				}
+				fmt.Fprintf(w, "%s\t%s\t%s\t%s%s\n", p.Name, p.Version, p.Type, p.Description, builtIn)
+			}
+			return w.Flush()
+		},
+	}
+}
+
+func pluginInstallCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "install <path>",
+		Short: "Install a plugin from a local directory",
+		Long:  "Copy a plugin directory to the devbox plugins directory.\nThe source must contain a valid plugin.yaml manifest.",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			srcDir := args[0]
+
+			// Validate manifest in source directory.
+			manifestPath := filepath.Join(srcDir, "plugin.yaml")
+			m, err := plugin.LoadManifest(manifestPath)
+			if err != nil {
+				return fmt.Errorf("devbox plugin install: %w", err)
+			}
+
+			// Copy plugin to discovery directory.
+			destDir := filepath.Join(plugin.DefaultPluginDir(), m.Name)
+			if err := copyDir(srcDir, destDir); err != nil {
+				return fmt.Errorf("devbox plugin install: %w", err)
+			}
+
+			fmt.Printf("Plugin %q (%s) installed\n", m.Name, m.Version)
+			return nil
+		},
+	}
+}
+
+func pluginRemoveCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:     "remove <name>",
+		Aliases: []string{"rm"},
+		Short:   "Remove an installed plugin",
+		Args:    cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			name := args[0]
+
+			// Prevent removing built-in plugins.
+			if name == "docker" {
+				return fmt.Errorf("devbox plugin remove: cannot remove built-in plugin %q", name)
+			}
+
+			// Validate name to prevent path traversal.
+			if strings.ContainsAny(name, `/\`) || strings.Contains(name, "..") || name == "." {
+				return fmt.Errorf("devbox plugin remove: invalid plugin name %q", name)
+			}
+
+			pluginDir := filepath.Join(plugin.DefaultPluginDir(), name)
+			if _, err := os.Stat(pluginDir); os.IsNotExist(err) {
+				return fmt.Errorf("devbox plugin remove: plugin %q not found", name)
+			}
+
+			if err := os.RemoveAll(pluginDir); err != nil {
+				return fmt.Errorf("devbox plugin remove: %w", err)
+			}
+
+			fmt.Printf("Plugin %q removed\n", name)
+			return nil
+		},
+	}
+}
+
+// copyDir recursively copies a directory tree.
+func copyDir(src, dst string) error {
+	if err := os.MkdirAll(dst, 0755); err != nil {
+		return err
+	}
+
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		return err
+	}
+
+	for _, entry := range entries {
+		srcPath := filepath.Join(src, entry.Name())
+		dstPath := filepath.Join(dst, entry.Name())
+
+		// Skip symlinks and special files to prevent path traversal.
+		if entry.Type()&os.ModeSymlink != 0 {
+			continue
+		}
+
+		if entry.IsDir() {
+			if err := copyDir(srcPath, dstPath); err != nil {
+				return err
+			}
+		} else if entry.Type().IsRegular() {
+			data, err := os.ReadFile(srcPath)
+			if err != nil {
+				return err
+			}
+			info, err := entry.Info()
+			if err != nil {
+				return err
+			}
+			if err := os.WriteFile(dstPath, data, info.Mode()); err != nil {
+				return err
+			}
+		}
+		// Skip non-regular, non-directory entries (pipes, sockets, devices).
+	}
+	return nil
 }
