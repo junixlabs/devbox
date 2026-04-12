@@ -1,0 +1,33 @@
+name: PR Preview
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+
+permissions:
+  pull-requests: write
+  statuses: write
+
+jobs:
+  preview-up:
+    if: github.event.action != 'closed'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: junixlabs/devbox-preview@v1
+        with:
+          action: up
+          server: ${{ secrets.DEVBOX_SERVER }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  preview-down:
+    if: github.event.action == 'closed'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: junixlabs/devbox-preview@v1
+        with:
+          action: down
+          server: ${{ secrets.DEVBOX_SERVER }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

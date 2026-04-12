@@ -12,6 +12,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/junixlabs/devbox/internal/ci"
 	"github.com/junixlabs/devbox/internal/config"
 	"github.com/junixlabs/devbox/internal/doctor"
 	devboxerr "github.com/junixlabs/devbox/internal/errors"
@@ -76,6 +77,7 @@ func main() {
 	rootCmd.AddCommand(snapshotCmd())
 	rootCmd.AddCommand(restoreCmd())
 	rootCmd.AddCommand(pluginCmd())
+	rootCmd.AddCommand(ciCmd(wm))
 
 	if err := rootCmd.Execute(); err != nil {
 		printError(err)
@@ -1488,4 +1490,218 @@ func copyDir(src, dst string) error {
 		// Skip non-regular, non-directory entries (pipes, sockets, devices).
 	}
 	return nil
+}
+
+func ciCmd(wm workspace.Manager) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "ci",
+		Short: "CI/CD integration commands",
+		Long:  "Commands for CI/CD platform integration.\nUsed by GitHub Actions to manage PR preview workspaces.",
+	}
+	cmd.AddCommand(ciPreviewUpCmd(wm))
+	cmd.AddCommand(ciPreviewDownCmd(wm))
+	return cmd
+}
+
+func ciPreviewUpCmd(wm workspace.Manager) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "preview-up",
+		Short: "Create a preview workspace for a PR",
+		Long:  "Create a preview workspace for a pull request and post the workspace URL as a PR comment.\nSets a commit status check on the PR head SHA.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			pr, _ := cmd.Flags().GetInt("pr")
+			repo, _ := cmd.Flags().GetString("repo")
+			sha, _ := cmd.Flags().GetString("sha")
+			serverFlag, _ := cmd.Flags().GetString("server")
+			templateFlag, _ := cmd.Flags().GetString("template")
+
+			token := os.Getenv("GITHUB_TOKEN")
+			if token == "" {
+				return fmt.Errorf("devbox ci preview-up: GITHUB_TOKEN environment variable is required")
+			}
+
+			parts := strings.SplitN(repo, "/", 2)
+			if len(parts) != 2 {
+				return fmt.Errorf("devbox ci preview-up: --repo must be in owner/repo format")
+			}
+			owner, repoName := parts[0], parts[1]
+
+			provider := ci.NewGitHubProvider(owner, repoName, token)
+			ctx := cmd.Context()
+
+			// Set pending status.
+			if err := provider.SetCommitStatus(ctx, sha, ci.StatusPending, "", "Creating preview workspace..."); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to set pending status: %v\n", err)
+			}
+
+			// Build workspace name scoped by repo to avoid collisions.
+			wsName := fmt.Sprintf("pr-%s-%d", repoName, pr)
+			branch := fmt.Sprintf("pr-%d", pr)
+
+			// Load config for defaults.
+			var cfg *config.DevboxConfig
+			if templateFlag != "" {
+				registry, err := tmpl.NewDefaultRegistry()
+				if err != nil {
+					provider.SetCommitStatus(ctx, sha, ci.StatusFailure, "", "Failed to load template")
+					return fmt.Errorf("devbox ci preview-up: %w", err)
+				}
+				t, err := registry.Get(templateFlag)
+				if err != nil {
+					provider.SetCommitStatus(ctx, sha, ci.StatusFailure, "", "Template not found")
+					return fmt.Errorf("devbox ci preview-up: %w", err)
+				}
+				cfg = t.ToDevboxConfig(wsName, "")
+			} else {
+				var err error
+				cfg, err = config.LoadFromDir(".")
+				if err != nil {
+					// No config file — create minimal config.
+					cfg = &config.DevboxConfig{Name: wsName}
+				}
+			}
+
+			if serverFlag != "" {
+				cfg.Server = serverFlag
+			}
+			if cfg.Server == "" {
+				provider.SetCommitStatus(ctx, sha, ci.StatusFailure, "", "No server specified")
+				return fmt.Errorf("devbox ci preview-up: --server is required")
+			}
+
+			// Create workspace.
+			ws, err := wm.Create(workspace.CreateParams{
+				Name:     wsName,
+				User:     "ci",
+				Server:   cfg.Server,
+				Repo:     cfg.Repo,
+				Branch:   branch,
+				Services: cfg.Services,
+				Ports:    cfg.Ports,
+				Env:      cfg.Env,
+			})
+			if err != nil {
+				// If already exists, start it instead.
+				var wsErr *workspace.WorkspaceError
+				if errors.As(err, &wsErr) && strings.Contains(wsErr.Message, "already exists") {
+					if startErr := wm.Start(wsName); startErr != nil {
+						provider.SetCommitStatus(ctx, sha, ci.StatusFailure, "", "Failed to start workspace")
+						return fmt.Errorf("devbox ci preview-up: %w", startErr)
+					}
+					ws, err = wm.Get(wsName)
+					if err != nil {
+						provider.SetCommitStatus(ctx, sha, ci.StatusFailure, "", "Failed to get workspace")
+						return fmt.Errorf("devbox ci preview-up: %w", err)
+					}
+				} else {
+					provider.SetCommitStatus(ctx, sha, ci.StatusFailure, "", "Failed to create workspace")
+					return fmt.Errorf("devbox ci preview-up: %w", err)
+				}
+			}
+
+			// Get workspace URL via Tailscale.
+			sshExec, err := devboxssh.New()
+			if err != nil {
+				provider.SetCommitStatus(ctx, sha, ci.StatusFailure, "", "SSH connection failed")
+				return fmt.Errorf("devbox ci preview-up: %w", err)
+			}
+			defer sshExec.Close()
+
+			tm := tailscale.NewManager(remoteRunner(sshExec, cfg.Server))
+			for name, port := range ws.Ports {
+				if err := tm.Serve(port, ws.Name); err != nil {
+					fmt.Fprintf(os.Stderr, "Warning: failed to expose port %s (%d): %v\n", name, port, err)
+				}
+			}
+
+			wsURL := ""
+			if tsStatus, err := tm.Status(); err == nil && tsStatus != nil {
+				wsURL = tailscale.WorkspaceURL(tsStatus.Hostname, tsStatus.TailnetName)
+			}
+
+			// Post PR comment with workspace URL.
+			if wsURL != "" {
+				if err := provider.CommentWorkspaceURL(ctx, pr, wsURL); err != nil {
+					fmt.Fprintf(os.Stderr, "Warning: failed to post PR comment: %v\n", err)
+				}
+			}
+
+			// Set success status.
+			if err := provider.SetCommitStatus(ctx, sha, ci.StatusSuccess, wsURL, "Preview workspace ready"); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to set success status: %v\n", err)
+			}
+
+			fmt.Printf("Preview workspace %q ready\n", wsName)
+			if wsURL != "" {
+				fmt.Printf("URL: %s\n", wsURL)
+			}
+
+			return nil
+		},
+	}
+	cmd.Flags().Int("pr", 0, "Pull request number (required)")
+	cmd.Flags().String("repo", "", "Repository in owner/repo format (required)")
+	cmd.Flags().String("sha", "", "Commit SHA for status check (required)")
+	cmd.Flags().String("server", "", "Target server (required)")
+	cmd.Flags().String("template", "", "Workspace template to use")
+	cmd.MarkFlagRequired("pr")
+	cmd.MarkFlagRequired("repo")
+	cmd.MarkFlagRequired("sha")
+	return cmd
+}
+
+func ciPreviewDownCmd(wm workspace.Manager) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "preview-down",
+		Short: "Destroy a PR preview workspace",
+		Long:  "Destroy a preview workspace created for a pull request and clean up the PR comment.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			pr, _ := cmd.Flags().GetInt("pr")
+			repo, _ := cmd.Flags().GetString("repo")
+
+			token := os.Getenv("GITHUB_TOKEN")
+			if token == "" {
+				return fmt.Errorf("devbox ci preview-down: GITHUB_TOKEN environment variable is required")
+			}
+
+			parts := strings.SplitN(repo, "/", 2)
+			if len(parts) != 2 {
+				return fmt.Errorf("devbox ci preview-down: --repo must be in owner/repo format")
+			}
+			owner, repoName := parts[0], parts[1]
+
+			wsName := fmt.Sprintf("pr-%s-%d", repoName, pr)
+			ctx := cmd.Context()
+
+			// Destroy workspace.
+			ws, err := wm.Get(wsName)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: workspace %q not found, cleaning up PR comment only\n", wsName)
+			} else {
+				unservePorts(ws)
+				if err := wm.Destroy(wsName); err != nil {
+					return fmt.Errorf("devbox ci preview-down: %w", err)
+				}
+			}
+
+			// Clean up PR comment.
+			provider := ci.NewGitHubProvider(owner, repoName, token)
+			commentID, err := provider.FindBotComment(ctx, pr)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to find bot comment: %v\n", err)
+			} else if commentID != 0 {
+				if err := provider.DeleteComment(ctx, commentID); err != nil {
+					fmt.Fprintf(os.Stderr, "Warning: failed to delete bot comment: %v\n", err)
+				}
+			}
+
+			fmt.Printf("Preview workspace %q destroyed\n", wsName)
+			return nil
+		},
+	}
+	cmd.Flags().Int("pr", 0, "Pull request number (required)")
+	cmd.Flags().String("repo", "", "Repository in owner/repo format (required)")
+	cmd.MarkFlagRequired("pr")
+	cmd.MarkFlagRequired("repo")
+	return cmd
 }

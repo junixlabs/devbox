@@ -1,0 +1,67 @@
+name: devbox-preview
+description: Create and destroy preview workspaces for pull requests
+
+inputs:
+  action:
+    description: 'Action to perform: up or down'
+    required: true
+  server:
+    description: 'Target server hostname or pool name'
+    required: true
+  template:
+    description: 'Workspace template to use (optional)'
+    required: false
+    default: ''
+  devbox-version:
+    description: 'devbox version to install'
+    required: false
+    default: 'latest'
+
+runs:
+  using: composite
+  steps:
+    - name: Install devbox
+      shell: bash
+      env:
+        DEVBOX_VERSION: ${{ inputs.devbox-version }}
+      run: |
+        if [ "$DEVBOX_VERSION" = "latest" ]; then
+          DOWNLOAD_URL="https://github.com/junixlabs/devbox/releases/latest/download/devbox-linux-amd64"
+        else
+          DOWNLOAD_URL="https://github.com/junixlabs/devbox/releases/download/${DEVBOX_VERSION}/devbox-linux-amd64"
+        fi
+        curl -fsSL "$DOWNLOAD_URL" -o /usr/local/bin/devbox
+        chmod +x /usr/local/bin/devbox
+        devbox --version
+
+    - name: Preview Up
+      if: inputs.action == 'up'
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+        INPUT_PR: ${{ github.event.pull_request.number }}
+        INPUT_REPO: ${{ github.repository }}
+        INPUT_SHA: ${{ github.event.pull_request.head.sha }}
+        INPUT_SERVER: ${{ inputs.server }}
+        INPUT_TEMPLATE: ${{ inputs.template }}
+      run: |
+        ARGS="--pr $INPUT_PR"
+        ARGS="$ARGS --repo $INPUT_REPO"
+        ARGS="$ARGS --sha $INPUT_SHA"
+        ARGS="$ARGS --server $INPUT_SERVER"
+        if [ -n "$INPUT_TEMPLATE" ]; then
+          ARGS="$ARGS --template $INPUT_TEMPLATE"
+        fi
+        devbox ci preview-up $ARGS
+
+    - name: Preview Down
+      if: inputs.action == 'down'
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+        INPUT_PR: ${{ github.event.pull_request.number }}
+        INPUT_REPO: ${{ github.repository }}
+      run: |
+        devbox ci preview-down \
+          --pr "$INPUT_PR" \
+          --repo "$INPUT_REPO"
