@@ -70,8 +70,8 @@ func TestResolver_Tailscale(t *testing.T) {
 	if id.Username != "dev" {
 		t.Errorf("Username = %q, want %q", id.Username, "dev")
 	}
-	if id.Source != "tailscale" {
-		t.Errorf("Source = %q, want %q", id.Source, "tailscale")
+	if id.Source != SourceTailscale {
+		t.Errorf("Source = %q, want %q", id.Source, SourceTailscale)
 	}
 }
 
@@ -86,8 +86,8 @@ func TestResolver_EnvFallback(t *testing.T) {
 	if id.Username != "envuser" {
 		t.Errorf("Username = %q, want %q", id.Username, "envuser")
 	}
-	if id.Source != "env" {
-		t.Errorf("Source = %q, want %q", id.Source, "env")
+	if id.Source != SourceEnv {
+		t.Errorf("Source = %q, want %q", id.Source, SourceEnv)
 	}
 }
 
@@ -101,8 +101,8 @@ func TestResolver_NilTailscale_EnvFallback(t *testing.T) {
 	if id.Username != "testuser" {
 		t.Errorf("Username = %q, want %q", id.Username, "testuser")
 	}
-	if id.Source != "env" {
-		t.Errorf("Source = %q, want %q", id.Source, "env")
+	if id.Source != SourceEnv {
+		t.Errorf("Source = %q, want %q", id.Source, SourceEnv)
 	}
 }
 

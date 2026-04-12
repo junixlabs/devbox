@@ -97,7 +97,7 @@ func TestConcurrentWorkspaceCreation(t *testing.T) {
 	}
 
 	// Verify list returns all 3.
-	list, err := mgr.List()
+	list, err := mgr.List(workspace.ListOptions{All: true})
 	if err != nil {
 		t.Fatalf("List(): %v", err)
 	}
@@ -211,8 +211,8 @@ func TestUserIsolation(t *testing.T) {
 	testutil.WaitForContainer(t, server, cB, 60*time.Second)
 
 	// Verify workspace directories are separate.
-	testutil.AssertDirExists(t, server, "/workspaces/"+wsA.Name)
-	testutil.AssertDirExists(t, server, "/workspaces/"+wsB.Name)
+	testutil.AssertDirExists(t, server, config.DefaultWorkspacesRoot+"/"+wsA.Name)
+	testutil.AssertDirExists(t, server, config.DefaultWorkspacesRoot+"/"+wsB.Name)
 
 	// Verify containers run in separate Docker Compose projects.
 	projectA := testutil.DockerInspect(t, server, cA, "{{index .Config.Labels \"com.docker.compose.project\"}}")
@@ -275,7 +275,7 @@ func TestCleanupAfterDestroy(t *testing.T) {
 		t.Fatalf("Create: %v", err)
 	}
 	testutil.WaitForContainer(t, server, containerName(ws.Name), 60*time.Second)
-	testutil.AssertDirExists(t, server, "/workspaces/"+ws.Name)
+	testutil.AssertDirExists(t, server, config.DefaultWorkspacesRoot+"/"+ws.Name)
 
 	// Destroy the workspace.
 	if err := mgr.Destroy(ws.Name); err != nil {
@@ -295,7 +295,7 @@ func TestCleanupAfterDestroy(t *testing.T) {
 	testutil.AssertPortFree(t, server, port)
 
 	// Verify workspace directory is gone.
-	testutil.AssertDirNotExists(t, server, "/workspaces/"+ws.Name)
+	testutil.AssertDirNotExists(t, server, config.DefaultWorkspacesRoot+"/"+ws.Name)
 
 	// Verify workspace is removed from state.
 	_, err = mgr.Get(ws.Name)

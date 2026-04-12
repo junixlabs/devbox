@@ -327,15 +327,15 @@ func (m *remoteManager) ServerResources(host string) (*ServerResourceInfo, error
 	defer sshExec.Close()
 
 	ctx := context.Background()
-	cpuOut, _, err := sshExec.Run(ctx, host, "nproc")
+	combined, _, err := sshExec.Run(ctx, host, "nproc && echo '---SEPARATOR---' && cat /proc/meminfo")
 	if err != nil {
-		return nil, fmt.Errorf("running nproc on %s: %w", host, err)
+		return nil, fmt.Errorf("querying server resources on %s: %w", host, err)
 	}
-	memOut, _, err := sshExec.Run(ctx, host, "cat /proc/meminfo")
-	if err != nil {
-		return nil, fmt.Errorf("reading /proc/meminfo on %s: %w", host, err)
+	parts := strings.SplitN(combined, "---SEPARATOR---", 2)
+	if len(parts) != 2 {
+		return nil, fmt.Errorf("unexpected server resources output from %s", host)
 	}
-	return ParseServerResources(cpuOut, memOut)
+	return ParseServerResources(strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1]))
 }
 
 // mustGet returns a workspace by name, or a WorkspaceError if not found.

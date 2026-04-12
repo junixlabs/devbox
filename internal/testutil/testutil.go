@@ -104,15 +104,24 @@ func WaitForContainer(t *testing.T, host, containerName string, timeout time.Dur
 	t.Fatalf("container %s not running after %v", containerName, timeout)
 }
 
-// AssertPortListening verifies that a port is bound on the remote host.
-func AssertPortListening(t *testing.T, host string, port int) {
-	t.Helper()
+// portListenerCount returns the number of listeners on a port via ss.
+func portListenerCount(host string, port int) (string, error) {
 	cmd := fmt.Sprintf("ss -tlnp 2>/dev/null | grep -c ':%d ' || true", port)
 	out, err := SSHRunE(host, cmd)
 	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(out), nil
+}
+
+// AssertPortListening verifies that a port is bound on the remote host.
+func AssertPortListening(t *testing.T, host string, port int) {
+	t.Helper()
+	count, err := portListenerCount(host, port)
+	if err != nil {
 		t.Fatalf("AssertPortListening: %v", err)
 	}
-	if strings.TrimSpace(out) == "0" {
+	if count == "0" {
 		t.Errorf("expected port %d to be listening on %s", port, host)
 	}
 }
@@ -120,12 +129,11 @@ func AssertPortListening(t *testing.T, host string, port int) {
 // AssertPortFree verifies that a port is NOT bound on the remote host.
 func AssertPortFree(t *testing.T, host string, port int) {
 	t.Helper()
-	cmd := fmt.Sprintf("ss -tlnp 2>/dev/null | grep -c ':%d ' || true", port)
-	out, err := SSHRunE(host, cmd)
+	count, err := portListenerCount(host, port)
 	if err != nil {
 		t.Fatalf("AssertPortFree: %v", err)
 	}
-	if strings.TrimSpace(out) != "0" {
+	if count != "0" {
 		t.Errorf("expected port %d to be free on %s, but it's in use", port, host)
 	}
 }

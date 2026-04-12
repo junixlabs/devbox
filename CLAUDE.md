@@ -3,14 +3,19 @@ Go CLI tool that turns any Linux machine into a ready-to-use dev environment in 
 
 ## Architecture
 - `cmd/devbox/` — CLI entry point, all cobra commands defined in main.go
-- `internal/config/` — devbox.yaml parsing and validation
-- `internal/workspace/` — Workspace model and Manager interface (lifecycle: create/start/stop/destroy/list/ssh)
+- `internal/config/` — devbox.yaml parsing, validation, Resources, PortRangeConfig
+- `internal/identity/` — User identity resolution (Tailscale login → username, DEVBOX_USER fallback)
+- `internal/port/` — Port auto-allocation registry with conflict detection
+- `internal/server/` — Server pool management (add/remove/list/health), least-loaded selector
+- `internal/workspace/` — Workspace model, Manager interface, resource limits, user-scoped naming
 - `internal/tailscale/` — Tailscale Manager interface (serve/unserve/status)
+- `internal/integration/` — Multi-user integration tests (build tag: integration)
+- `internal/testutil/` — Shared test helpers for SSH, Docker, assertions
 - `.claude/specs/` — Product vision and design documents
 
 ## Key Patterns
 - **Cobra CLI**: All commands defined as funcs returning `*cobra.Command`, wired in `main()`
-- **Interface-driven**: `workspace.Manager` and `tailscale.Manager` define contracts; implementations are TBD (Phase 0 skeleton)
+- **Interface-driven**: `workspace.Manager`, `tailscale.Manager`, `identity.Resolver`, `port.Registry`, `server.Pool` define contracts
 - **Config**: Per-project `devbox.yaml` parsed into `DevboxConfig` struct with yaml tags; `name` and `server` are required fields
 - **Error wrapping**: `fmt.Errorf("context: %w", err)` for all error propagation
 - **Single binary**: No runtime dependencies, cross-compile with `GOOS`/`GOARCH`
@@ -25,6 +30,7 @@ Go CLI tool that turns any Linux machine into a ready-to-use dev environment in 
 go build -o devbox ./cmd/devbox/   # Build binary
 go test ./...                       # Run all tests
 go vet ./...                        # Lint
-./devbox up [project]               # Start workspace
-./devbox stop|list|destroy|ssh      # Other commands (stubs in Phase 0)
+./devbox up [project]               # Start workspace (auto-selects server, resolves user)
+./devbox stop|list|destroy|ssh      # Workspace lifecycle commands
+./devbox server add|remove|list     # Server pool management
 ```

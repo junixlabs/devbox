@@ -19,6 +19,8 @@ type fileRegistry struct {
 // TODO: In-process mutex only protects single-process access. For concurrent
 // devbox processes, file-level locking (flock) would be needed.
 func NewFileRegistry(path string, portRange PortRange) Registry {
+	// Ensure state directory exists once at creation time.
+	_ = os.MkdirAll(filepath.Dir(path), 0o755)
 	return &fileRegistry{
 		path:      path,
 		portRange: portRange,
@@ -34,15 +36,12 @@ func (r *fileRegistry) Allocate(workspace, service string, override *int) (int, 
 		return 0, err
 	}
 
-	// Check if this workspace+service already has an allocation.
+	// Single pass: check for existing allocation and build used-ports map.
+	usedPorts := make(map[int]string, len(allocs)) // port → workspace
 	for _, a := range allocs {
 		if a.WorkspaceName == workspace && a.ServiceName == service {
 			return a.Port, nil
 		}
-	}
-
-	usedPorts := make(map[int]string) // port → workspace
-	for _, a := range allocs {
 		usedPorts[a.Port] = a.WorkspaceName
 	}
 
@@ -186,11 +185,7 @@ func (r *fileRegistry) load() ([]Allocation, error) {
 
 // save writes allocations to the state file, creating directories if needed.
 func (r *fileRegistry) save(allocs []Allocation) error {
-	if err := os.MkdirAll(filepath.Dir(r.path), 0o755); err != nil {
-		return fmt.Errorf("creating port state directory: %w", err)
-	}
-
-	data, err := json.MarshalIndent(allocs, "", "  ")
+	data, err := json.Marshal(allocs)
 	if err != nil {
 		return fmt.Errorf("marshalling port state: %w", err)
 	}

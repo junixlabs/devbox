@@ -9,10 +9,16 @@ import (
 	"github.com/junixlabs/devbox/internal/tailscale"
 )
 
+// Source constants for identity resolution.
+const (
+	SourceTailscale = "tailscale"
+	SourceEnv       = "env"
+)
+
 // Identity represents a resolved user identity.
 type Identity struct {
 	Username string
-	Source   string // "tailscale" or "env"
+	Source   string
 }
 
 // Resolver resolves the current user identity.
@@ -32,15 +38,16 @@ func NewResolver(ts tailscale.Manager) Resolver {
 // unsafeChars matches characters not in [a-z0-9-].
 var unsafeChars = regexp.MustCompile(`[^a-z0-9-]`)
 
+// multiHyphen collapses consecutive hyphens into one.
+var multiHyphen = regexp.MustCompile(`-{2,}`)
+
 // Sanitize normalizes a username to lowercase alphanumeric + hyphens only.
 func Sanitize(username string) string {
 	s := strings.ToLower(username)
 	s = strings.ReplaceAll(s, ".", "-")
 	s = strings.ReplaceAll(s, "_", "-")
 	s = unsafeChars.ReplaceAllString(s, "")
-	for strings.Contains(s, "--") {
-		s = strings.ReplaceAll(s, "--", "-")
-	}
+	s = multiHyphen.ReplaceAllString(s, "-")
 	s = strings.Trim(s, "-")
 	return s
 }
@@ -60,7 +67,7 @@ func (r *resolver) Current() (*Identity, error) {
 		if err == nil && status.UserLogin != "" {
 			username := UsernameFromLogin(status.UserLogin)
 			if username != "" {
-				return &Identity{Username: username, Source: "tailscale"}, nil
+				return &Identity{Username: username, Source: SourceTailscale}, nil
 			}
 		}
 	}
@@ -68,7 +75,7 @@ func (r *resolver) Current() (*Identity, error) {
 	if envUser := os.Getenv("DEVBOX_USER"); envUser != "" {
 		username := Sanitize(envUser)
 		if username != "" {
-			return &Identity{Username: username, Source: "env"}, nil
+			return &Identity{Username: username, Source: SourceEnv}, nil
 		}
 	}
 
