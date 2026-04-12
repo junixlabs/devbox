@@ -138,7 +138,7 @@ func (m Model) execSSH(name string) tea.Cmd {
 	}
 
 	containerName := ws.Name + "-" + tuiFirstService(ws.Services) + "-1"
-	sshCmd := fmt.Sprintf("docker exec -it %s /bin/sh", containerName)
+	sshCmd := fmt.Sprintf("docker exec -it '%s' /bin/sh", containerName)
 	c := exec.Command("ssh", "-t", ws.ServerHost, sshCmd)
 	return tea.ExecProcess(c, func(err error) tea.Msg {
 		return workspaceActionDoneMsg{action: "ssh", name: name, err: err}

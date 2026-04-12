@@ -8,7 +8,6 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/junixlabs/devbox/internal/workspace"
 )
 
@@ -334,5 +333,5 @@ func truncate(s string, maxLen int) string {
 	if len(runes) <= maxLen {
 		return s
 	}
-	return string(runes[:maxLen-1]) + lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render("~")
+	return string(runes[:maxLen-1]) + dimStyle.Render("~")
 }
