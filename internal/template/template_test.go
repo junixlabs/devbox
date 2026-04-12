@@ -79,20 +79,65 @@ func TestToDevboxConfig(t *testing.T) {
 	}
 }
 
+func TestMatchesQuery(t *testing.T) {
+	tmpl := &Template{Name: "laravel", Description: "PHP framework with MySQL"}
+
+	tests := []struct {
+		query string
+		want  bool
+	}{
+		{"laravel", true},
+		{"LARAVEL", true},
+		{"PHP", true},
+		{"mysql", true},
+		{"nonexistent", false},
+		{"lara", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.query, func(t *testing.T) {
+			if got := tmpl.MatchesQuery(tt.query); got != tt.want {
+				t.Errorf("MatchesQuery(%q) = %v, want %v", tt.query, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestVersionRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	reg := NewLocalRegistry(dir, nil)
+
+	tmpl := &Template{
+		Name:    "versioned-app",
+		Version: "2.1.0",
+	}
+	if err := reg.Save(tmpl); err != nil {
+		t.Fatalf("Save() error: %v", err)
+	}
+
+	got, err := reg.Get("versioned-app")
+	if err != nil {
+		t.Fatalf("Get() error: %v", err)
+	}
+	if got.Version != "2.1.0" {
+		t.Errorf("expected version %q, got %q", "2.1.0", got.Version)
+	}
+}
+
 func TestLoadBuiltins(t *testing.T) {
 	templates, err := LoadBuiltins()
 	if err != nil {
 		t.Fatalf("LoadBuiltins() error: %v", err)
 	}
-	if len(templates) < 5 {
-		t.Errorf("expected at least 5 built-in templates, got %d", len(templates))
+	if len(templates) < 7 {
+		t.Errorf("expected at least 7 built-in templates, got %d", len(templates))
 	}
 
 	names := make(map[string]bool)
 	for _, tmpl := range templates {
 		names[tmpl.Name] = true
 	}
-	for _, expected := range []string{"laravel", "rails", "nextjs", "go", "python"} {
+	for _, expected := range []string{"laravel", "rails", "nextjs", "go", "python", "django", "rust"} {
 		if !names[expected] {
 			t.Errorf("expected built-in template %q not found", expected)
 		}

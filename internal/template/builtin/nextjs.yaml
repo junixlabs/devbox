@@ -1,4 +1,5 @@
 name: nextjs
+version: "1.0.0"
 description: Next.js application with Node.js
 services: []
 ports:

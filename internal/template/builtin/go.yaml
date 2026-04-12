@@ -1,4 +1,5 @@
 name: go
+version: "1.0.0"
 description: Go application
 services: []
 ports:

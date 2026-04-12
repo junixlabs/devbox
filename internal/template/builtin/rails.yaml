@@ -1,4 +1,5 @@
 name: rails
+version: "1.0.0"
 description: Ruby on Rails application with PostgreSQL and Redis
 services:
   - postgres:16

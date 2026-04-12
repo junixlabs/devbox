@@ -1,0 +1,10 @@
+name: rust
+description: Rust application with Cargo build system
+version: "1.0.0"
+ports:
+  app: 8080
+env:
+  CARGO_HOME: /workspace/.cargo
+  RUST_LOG: info
+setup:
+  - cargo build
