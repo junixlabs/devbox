@@ -1,12 +1,11 @@
 package testutil
 
 import (
-	"os"
 	"testing"
 )
 
 func TestTestServer_Default(t *testing.T) {
-	os.Unsetenv("DEVBOX_TEST_SERVER")
+	t.Setenv("DEVBOX_TEST_SERVER", "")
 	got := TestServer(t)
 	if got != "devbox-vps" {
 		t.Errorf("TestServer() = %q, want %q", got, "devbox-vps")
