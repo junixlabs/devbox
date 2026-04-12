@@ -1,4 +1,5 @@
 name: laravel
+version: "1.0.0"
 description: Laravel PHP application with MySQL and Redis
 services:
   - mysql:8.0

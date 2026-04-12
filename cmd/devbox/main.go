@@ -19,6 +19,7 @@ import (
 	"github.com/junixlabs/devbox/internal/metrics"
 	"github.com/junixlabs/devbox/internal/plugin"
 	"github.com/junixlabs/devbox/internal/plugin/docker"
+	"github.com/junixlabs/devbox/internal/registry"
 	"github.com/junixlabs/devbox/internal/server"
 	"github.com/junixlabs/devbox/internal/snapshot"
 	devboxssh "github.com/junixlabs/devbox/internal/ssh"
@@ -976,6 +977,9 @@ func templateCmd() *cobra.Command {
 	}
 	cmd.AddCommand(templateListCmd())
 	cmd.AddCommand(templateCreateCmd())
+	cmd.AddCommand(templateSearchCmd())
+	cmd.AddCommand(templatePullCmd())
+	cmd.AddCommand(templatePushCmd())
 	return cmd
 }
 
@@ -1053,6 +1057,98 @@ func templateCreateCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().String("description", "", "Template description")
+	return cmd
+}
+
+func templateSearchCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "search <query>",
+		Short: "Search templates in the community registry",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			registryURL, _ := cmd.Flags().GetString("registry")
+			reg := registry.NewRemoteRegistry(registryURL)
+
+			results, err := reg.Search(args[0])
+			if err != nil {
+				return fmt.Errorf("devbox template search: %w", err)
+			}
+
+			if len(results) == 0 {
+				fmt.Println("No templates found")
+				return nil
+			}
+
+			w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+			fmt.Fprintln(w, "NAME\tVERSION\tDESCRIPTION")
+			for _, e := range results {
+				fmt.Fprintf(w, "%s\t%s\t%s\n", e.Name, e.Version, e.Description)
+			}
+			return w.Flush()
+		},
+	}
+	cmd.Flags().String("registry", "", "Custom registry URL")
+	return cmd
+}
+
+func templatePullCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "pull <name>",
+		Short: "Download a template from the community registry",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			registryURL, _ := cmd.Flags().GetString("registry")
+			reg := registry.NewRemoteRegistry(registryURL)
+
+			localReg, err := tmpl.NewDefaultRegistry()
+			if err != nil {
+				return fmt.Errorf("devbox template pull: %w", err)
+			}
+
+			t, err := reg.Pull(args[0], localReg)
+			if err != nil {
+				return fmt.Errorf("devbox template pull: %w", err)
+			}
+
+			version := ""
+			if t.Version != "" {
+				version = fmt.Sprintf(" (v%s)", t.Version)
+			}
+			fmt.Printf("Template %q%s saved to local registry\n", t.Name, version)
+			return nil
+		},
+	}
+	cmd.Flags().String("registry", "", "Custom registry URL")
+	return cmd
+}
+
+func templatePushCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "push <name>",
+		Short: "Publish a template to the community registry",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			registryURL, _ := cmd.Flags().GetString("registry")
+			reg := registry.NewRemoteRegistry(registryURL)
+
+			localReg, err := tmpl.NewDefaultRegistry()
+			if err != nil {
+				return fmt.Errorf("devbox template push: %w", err)
+			}
+
+			output, err := reg.Push(args[0], localReg)
+			if err != nil {
+				return fmt.Errorf("devbox template push: %w", err)
+			}
+
+			fmt.Println("# Template YAML for submission:")
+			fmt.Println(output)
+			fmt.Println("# To publish, submit a PR to the community registry repo:")
+			fmt.Printf("# %s\n", registry.DefaultRegistryURL)
+			return nil
+		},
+	}
+	cmd.Flags().String("registry", "", "Custom registry URL")
 	return cmd
 }
 

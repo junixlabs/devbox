@@ -17,12 +17,24 @@ var namePattern = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
 // Template extends DevboxConfig with setup scripts and metadata.
 type Template struct {
 	Name        string            `yaml:"name"`
+	Version     string            `yaml:"version,omitempty"`
 	Description string            `yaml:"description,omitempty"`
 	Services    []string          `yaml:"services,omitempty"`
 	Ports       map[string]int    `yaml:"ports,omitempty"`
 	Env         map[string]string `yaml:"env,omitempty"`
 	Resources   *config.Resources `yaml:"resources,omitempty"`
 	Setup       []string          `yaml:"setup,omitempty"`
+}
+
+// MatchesQuery returns true if the template's name or description
+// contains the query string (case-insensitive). Returns false for empty queries.
+func (t *Template) MatchesQuery(query string) bool {
+	if query == "" {
+		return false
+	}
+	q := strings.ToLower(query)
+	return strings.Contains(strings.ToLower(t.Name), q) ||
+		strings.Contains(strings.ToLower(t.Description), q)
 }
 
 // Validate checks that the template has a valid name and consistent fields.
