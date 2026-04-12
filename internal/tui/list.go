@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -207,7 +208,7 @@ func (m ListModel) View() string {
 				b.WriteString("\n")
 				break
 			}
-			line := fmt.Sprintf("  %-30s %-10s %-10s %-20s %s",
+			line := fmt.Sprintf("  %-30s %s %-10s %-20s %s",
 				truncate(ws.Name, 30),
 				renderStatus(ws.Status),
 				truncate(ws.User, 10),
@@ -297,17 +298,18 @@ func (m ListModel) doAction(action, name string) tea.Cmd {
 }
 
 func renderStatus(s workspace.Status) string {
+	padded := fmt.Sprintf("%-10s", string(s))
 	switch s {
 	case workspace.StatusRunning:
-		return statusRunning.Render(string(s))
+		return statusRunning.Render(padded)
 	case workspace.StatusStopped:
-		return statusStopped.Render(string(s))
+		return statusStopped.Render(padded)
 	case workspace.StatusCreating:
-		return statusCreating.Render(string(s))
+		return statusCreating.Render(padded)
 	case workspace.StatusError:
-		return statusError.Render(string(s))
+		return statusError.Render(padded)
 	default:
-		return string(s)
+		return padded
 	}
 }
 
@@ -315,16 +317,22 @@ func formatPorts(ports map[string]int) string {
 	if len(ports) == 0 {
 		return "-"
 	}
+	names := make([]string, 0, len(ports))
+	for name := range ports {
+		names = append(names, name)
+	}
+	sort.Strings(names)
 	pairs := make([]string, 0, len(ports))
-	for name, port := range ports {
-		pairs = append(pairs, fmt.Sprintf("%s:%d", name, port))
+	for _, name := range names {
+		pairs = append(pairs, fmt.Sprintf("%s:%d", name, ports[name]))
 	}
 	return strings.Join(pairs, " ")
 }
 
 func truncate(s string, maxLen int) string {
-	if len(s) <= maxLen {
+	runes := []rune(s)
+	if len(runes) <= maxLen {
 		return s
 	}
-	return s[:maxLen-1] + lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render("~")
+	return string(runes[:maxLen-1]) + lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render("~")
 }
