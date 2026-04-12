@@ -14,6 +14,9 @@ import (
 // validContainerName matches valid Docker container names.
 var validContainerName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]+$`)
 
+// metricsSep is the delimiter used to separate sections in batched SSH output.
+const metricsSep = "===METRICS_SEP==="
+
 // dockerStatsJSON mirrors the JSON output of docker stats --format '{{json .}}'.
 type dockerStatsJSON struct {
 	Name    string `json:"Name"`
@@ -65,18 +68,18 @@ func (c *sshCollector) CollectWorkspace(ctx context.Context, host, container str
 func (c *sshCollector) CollectServer(ctx context.Context, host string) (*ServerMetrics, error) {
 	// Single SSH command for all container stats + server info.
 	cmd := "docker stats --no-stream --format '{{json .}}' 2>/dev/null; " +
-		"echo '===METRICS_SEP==='; " +
+		"echo '" + metricsSep + "'; " +
 		"nproc; " +
-		"echo '===METRICS_SEP==='; " +
+		"echo '" + metricsSep + "'; " +
 		"cat /proc/meminfo; " +
-		"echo '===METRICS_SEP==='; " +
+		"echo '" + metricsSep + "'; " +
 		"df -B1 / | tail -1"
 	stdout, _, err := c.exec.Run(ctx, host, cmd)
 	if err != nil {
 		return nil, fmt.Errorf("collecting server metrics on %s: %w", host, err)
 	}
 
-	parts := strings.Split(stdout, "===METRICS_SEP===")
+	parts := strings.Split(stdout, metricsSep)
 	if len(parts) < 4 {
 		return nil, fmt.Errorf("unexpected metrics output from %s (got %d parts)", host, len(parts))
 	}
