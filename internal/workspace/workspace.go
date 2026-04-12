@@ -2,6 +2,8 @@ package workspace
 
 import (
 	"fmt"
+	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -18,6 +20,7 @@ const (
 // Workspace represents a remote development workspace.
 type Workspace struct {
 	Name       string            `json:"name"`
+	User       string            `json:"user"`
 	Project    string            `json:"project"`
 	Branch     string            `json:"branch"`
 	Status     Status            `json:"status"`
@@ -34,12 +37,19 @@ type Workspace struct {
 // CreateParams bundles the inputs needed to create a workspace.
 type CreateParams struct {
 	Name     string
+	User     string
 	Server   string
 	Repo     string
 	Branch   string
 	Services []string
 	Ports    map[string]int
 	Env      map[string]string
+}
+
+// ListOptions controls workspace list filtering.
+type ListOptions struct {
+	User string // Filter workspaces by user. Empty string shows all.
+	All  bool   // When true, show all workspaces regardless of user filter.
 }
 
 // Manager defines the interface for workspace lifecycle management.
@@ -56,8 +66,8 @@ type Manager interface {
 	// Destroy permanently removes a workspace and all its data.
 	Destroy(name string) error
 
-	// List returns all workspaces across configured servers.
-	List() ([]Workspace, error)
+	// List returns workspaces, optionally filtered by user.
+	List(opts ListOptions) ([]Workspace, error)
 
 	// Get returns a single workspace by name.
 	Get(name string) (*Workspace, error)
@@ -82,3 +92,28 @@ func (e *WorkspaceError) Error() string {
 
 func (e *WorkspaceError) Unwrap() error        { return e.Err }
 func (e *WorkspaceError) GetSuggestion() string { return e.Suggestion }
+
+// FormatName builds a workspace name from user, project, and branch.
+// Returns {user}-{project}-{branch} with sanitization (lowercase, no slashes).
+func FormatName(user, project, branch string) string {
+	sanitize := func(s string) string {
+		s = strings.ToLower(s)
+		s = strings.ReplaceAll(s, "/", "-")
+		return s
+	}
+	parts := []string{sanitize(user), sanitize(project)}
+	if branch != "" {
+		parts = append(parts, sanitize(branch))
+	}
+	return strings.Join(parts, "-")
+}
+
+// FormatPath builds a workspace filesystem path.
+// Returns {root}/{user}/{project}-{branch}/.
+func FormatPath(root, user, project, branch string) string {
+	dir := strings.ToLower(project)
+	if branch != "" {
+		dir += "-" + strings.ToLower(strings.ReplaceAll(branch, "/", "-"))
+	}
+	return filepath.Join(root, strings.ToLower(user), dir)
+}

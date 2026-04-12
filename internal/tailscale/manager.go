@@ -35,6 +35,9 @@ type tsStatusJSON struct {
 	Self           struct {
 		HostName     string   `json:"HostName"`
 		TailscaleIPs []string `json:"TailscaleIPs"`
+		UserProfile  struct {
+			LoginName string `json:"LoginName"`
+		} `json:"UserProfile"`
 	} `json:"Self"`
 }
 
@@ -60,5 +63,6 @@ func (m *tsManager) Status() (*StatusInfo, error) {
 		Hostname:    raw.Self.HostName,
 		TailnetName: tailnet,
 		IP:          raw.Self.TailscaleIPs[0],
+		UserLogin:   raw.Self.UserProfile.LoginName,
 	}, nil
 }

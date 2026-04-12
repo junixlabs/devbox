@@ -10,15 +10,19 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// DefaultWorkspacesRoot is the default base directory for workspaces on the server.
+const DefaultWorkspacesRoot = "/workspaces"
+
 // DevboxConfig represents the per-project devbox.yaml configuration.
 type DevboxConfig struct {
-	Name     string            `yaml:"name"`
-	Server   string            `yaml:"server"`
-	Repo     string            `yaml:"repo"`
-	Branch   string            `yaml:"branch,omitempty"`
-	Services []string          `yaml:"services,omitempty"`
-	Ports    map[string]int    `yaml:"ports,omitempty"`
-	Env      map[string]string `yaml:"env,omitempty"`
+	Name           string            `yaml:"name"`
+	Server         string            `yaml:"server"`
+	Repo           string            `yaml:"repo"`
+	Branch         string            `yaml:"branch,omitempty"`
+	Services       []string          `yaml:"services,omitempty"`
+	Ports          map[string]int    `yaml:"ports,omitempty"`
+	Env            map[string]string `yaml:"env,omitempty"`
+	WorkspacesRoot string            `yaml:"workspaces_root,omitempty"`
 }
 
 // DefaultConfigFile is the default config filename looked up in the project root.
@@ -58,6 +62,10 @@ func Load(path string) (*DevboxConfig, error) {
 			"Add 'server: your-server' to devbox.yaml",
 			nil,
 		)
+	}
+
+	if cfg.WorkspacesRoot == "" {
+		cfg.WorkspacesRoot = DefaultWorkspacesRoot
 	}
 
 	return &cfg, nil

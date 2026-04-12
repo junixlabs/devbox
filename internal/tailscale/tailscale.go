@@ -31,6 +31,9 @@ type StatusInfo struct {
 
 	// IP is the Tailscale IP address of this machine.
 	IP string `json:"ip"`
+
+	// UserLogin is the Tailscale user login (email-like identifier) of this machine's owner.
+	UserLogin string `json:"user_login"`
 }
 
 // NewManager creates a Manager that executes Tailscale CLI commands via the given runner.

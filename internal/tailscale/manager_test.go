@@ -52,7 +52,10 @@ const validStatusJSON = `{
 	"MagicDNSSuffix": "example.com",
 	"Self": {
 		"HostName": "devbox-vps",
-		"TailscaleIPs": ["100.117.246.55", "fd7a:115c:a1e0::1"]
+		"TailscaleIPs": ["100.117.246.55", "fd7a:115c:a1e0::1"],
+		"UserProfile": {
+			"LoginName": "dev@example.com"
+		}
 	}
 }`
 
@@ -73,6 +76,9 @@ func TestStatus_Success(t *testing.T) {
 	}
 	if info.IP != "100.117.246.55" {
 		t.Errorf("expected IP=100.117.246.55, got %s", info.IP)
+	}
+	if info.UserLogin != "dev@example.com" {
+		t.Errorf("expected UserLogin=dev@example.com, got %s", info.UserLogin)
 	}
 }
 
