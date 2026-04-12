@@ -1,0 +1,16 @@
+name: rails
+description: Ruby on Rails application with PostgreSQL and Redis
+services:
+  - postgres:16
+  - redis:7
+ports:
+  app: 3000
+  postgres: 5432
+  redis: 6379
+env:
+  RAILS_ENV: development
+  DATABASE_URL: postgres://postgres:postgres@postgres:5432/rails_dev
+  REDIS_URL: redis://redis:6379/0
+setup:
+  - bundle install
+  - bin/rails db:setup

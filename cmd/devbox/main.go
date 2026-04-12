@@ -19,6 +19,7 @@ import (
 	"github.com/junixlabs/devbox/internal/server"
 	devboxssh "github.com/junixlabs/devbox/internal/ssh"
 	"github.com/junixlabs/devbox/internal/tailscale"
+	tmpl "github.com/junixlabs/devbox/internal/template"
 	"github.com/junixlabs/devbox/internal/ui"
 	"github.com/junixlabs/devbox/internal/workspace"
 	"github.com/spf13/cobra"
@@ -59,6 +60,7 @@ func main() {
 	rootCmd.AddCommand(sshCmd(wm))
 	rootCmd.AddCommand(doctorCmd())
 	rootCmd.AddCommand(serverCmd())
+	rootCmd.AddCommand(templateCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		printError(err)
@@ -116,9 +118,31 @@ func upCmd(wm workspace.Manager) *cobra.Command {
 				project = args[0]
 			}
 
-			cfg, err := config.LoadFromDir(project)
-			if err != nil {
-				return fmt.Errorf("devbox up: %w", err)
+			templateFlag, _ := cmd.Flags().GetString("template")
+
+			var cfg *config.DevboxConfig
+			if templateFlag != "" {
+				// Load workspace from template instead of devbox.yaml.
+				registry, err := tmpl.NewDefaultRegistry()
+				if err != nil {
+					return fmt.Errorf("devbox up: %w", err)
+				}
+				t, err := registry.Get(templateFlag)
+				if err != nil {
+					return fmt.Errorf("devbox up: %w", err)
+				}
+
+				dirName := filepath.Base(mustGetwd())
+				if project != "." {
+					dirName = filepath.Base(project)
+				}
+				cfg = t.ToDevboxConfig(dirName, "")
+			} else {
+				var err error
+				cfg, err = config.LoadFromDir(project)
+				if err != nil {
+					return fmt.Errorf("devbox up: %w", err)
+				}
 			}
 
 			if b, _ := cmd.Flags().GetString("branch"); b != "" {
@@ -252,6 +276,7 @@ func upCmd(wm workspace.Manager) *cobra.Command {
 	}
 	cmd.Flags().String("branch", "", "Git branch to checkout")
 	cmd.Flags().String("server", "", "Target server name from pool (or hostname)")
+	cmd.Flags().String("template", "", "Create workspace from a template (e.g. laravel, nextjs)")
 	return cmd
 }
 
@@ -841,4 +866,92 @@ func checkMark(ok bool) string {
 		return "ok"
 	}
 	return "fail"
+}
+
+func templateCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "template",
+		Short: "Manage workspace templates",
+		Long:  "List, create, and manage workspace templates.\nTemplates provide pre-defined configurations for common project types.",
+	}
+	cmd.AddCommand(templateListCmd())
+	cmd.AddCommand(templateCreateCmd())
+	return cmd
+}
+
+func templateListCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:     "list",
+		Aliases: []string{"ls"},
+		Short:   "List available templates",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			registry, err := tmpl.NewDefaultRegistry()
+			if err != nil {
+				return fmt.Errorf("devbox template list: %w", err)
+			}
+
+			templates, err := registry.List()
+			if err != nil {
+				return fmt.Errorf("devbox template list: %w", err)
+			}
+
+			if len(templates) == 0 {
+				fmt.Println("No templates available")
+				return nil
+			}
+
+			w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+			fmt.Fprintln(w, "NAME\tDESCRIPTION\tSERVICES\tPORTS")
+			for _, t := range templates {
+				services := "-"
+				if len(t.Services) > 0 {
+					services = strings.Join(t.Services, ", ")
+				}
+				ports := "-"
+				if len(t.Ports) > 0 {
+					ports = formatPorts(t.Ports)
+				}
+				fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", t.Name, t.Description, services, ports)
+			}
+			return w.Flush()
+		},
+	}
+}
+
+func templateCreateCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "create <name>",
+		Short: "Create a template from the current workspace config",
+		Long:  "Save the current project's devbox.yaml configuration as a reusable template.\nTemplates are stored in ~/.config/devbox/templates/.",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			name := args[0]
+
+			cfg, err := config.LoadFromDir(".")
+			if err != nil {
+				return fmt.Errorf("devbox template create: %w", err)
+			}
+
+			description, _ := cmd.Flags().GetString("description")
+			t := tmpl.FromDevboxConfig(cfg, name, description)
+
+			if err := t.Validate(); err != nil {
+				return fmt.Errorf("devbox template create: %w", err)
+			}
+
+			registry, err := tmpl.NewDefaultRegistry()
+			if err != nil {
+				return fmt.Errorf("devbox template create: %w", err)
+			}
+
+			if err := registry.Save(t); err != nil {
+				return fmt.Errorf("devbox template create: %w", err)
+			}
+
+			fmt.Printf("Template %q saved\n", name)
+			return nil
+		},
+	}
+	cmd.Flags().String("description", "", "Template description")
+	return cmd
 }
