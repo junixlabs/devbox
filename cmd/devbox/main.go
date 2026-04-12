@@ -345,22 +345,10 @@ func listCmd(wm workspace.Manager) *cobra.Command {
 			// Filter by --server if provided.
 			serverFilter, _ := cmd.Flags().GetString("server")
 			if serverFilter != "" {
-				// Resolve server name from pool if possible.
-				resolvedHost := serverFilter
-				configPath, _ := server.DefaultConfigPath()
-				if pool, err := server.NewFilePool(configPath, nil); err == nil {
-					if servers, err := pool.List(); err == nil {
-						for _, srv := range servers {
-							if srv.Name == serverFilter {
-								resolvedHost = server.SSHHost(&srv)
-								break
-							}
-						}
-					}
-				}
+				resolvedHost, _ := resolveServer(serverFilter)
 				filtered := make([]workspace.Workspace, 0)
 				for _, ws := range workspaces {
-					if ws.ServerHost == resolvedHost || ws.ServerHost == serverFilter {
+					if ws.ServerHost == resolvedHost {
 						filtered = append(filtered, ws)
 					}
 				}
@@ -1278,3 +1266,4 @@ func formatBytes(b int64) string {
 	default:
 		return fmt.Sprintf("%d B", b)
 	}
+}
