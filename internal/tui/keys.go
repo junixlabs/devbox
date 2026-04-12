@@ -68,6 +68,6 @@ func DefaultKeyMap() KeyMap {
 }
 
 // helpText returns a formatted help string for the help bar.
-func helpText(km KeyMap) string {
+func helpText(_ KeyMap) string {
 	return "  s:start  x:stop  d:destroy  enter:ssh  l:logs  r:refresh  /:filter  q:quit"
 }

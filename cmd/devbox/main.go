@@ -29,7 +29,7 @@ import (
 )
 
 var (
-	version = "0.2.0"
+	version = "0.3.0"
 	verbose bool
 	noColor bool
 )
@@ -682,30 +682,9 @@ func statsCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			serverFlag, _ := cmd.Flags().GetString("server")
 
-			if serverFlag == "" {
-				cfg, err := config.LoadFromDir(".")
-				if err == nil {
-					serverFlag = cfg.Server
-				}
-			}
-
-			// Resolve server name from pool.
-			if serverFlag != "" {
-				configPath, _ := server.DefaultConfigPath()
-				if pool, err := server.NewFilePool(configPath, nil); err == nil {
-					if servers, err := pool.List(); err == nil {
-						for _, srv := range servers {
-							if srv.Name == serverFlag {
-								serverFlag = server.SSHHost(&srv)
-								break
-							}
-						}
-					}
-				}
-			}
-
-			if serverFlag == "" {
-				return fmt.Errorf("devbox stats: no server specified — use --server flag or create devbox.yaml")
+			host, err := resolveServer(serverFlag)
+			if err != nil {
+				return fmt.Errorf("devbox stats: %w", err)
 			}
 
 			sshExec, err := devboxssh.New()
@@ -720,7 +699,7 @@ func statsCmd() *cobra.Command {
 			if len(args) == 1 {
 				// Single workspace mode.
 				container := args[0]
-				wm, err := collector.CollectWorkspace(ctx, serverFlag, container)
+				wm, err := collector.CollectWorkspace(ctx, host, container)
 				if err != nil {
 					return fmt.Errorf("devbox stats: %w", err)
 				}
@@ -733,7 +712,7 @@ func statsCmd() *cobra.Command {
 			}
 
 			// Server overview mode.
-			sm, err := collector.CollectServer(ctx, serverFlag)
+			sm, err := collector.CollectServer(ctx, host)
 			if err != nil {
 				return fmt.Errorf("devbox stats: %w", err)
 			}
