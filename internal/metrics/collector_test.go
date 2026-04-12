@@ -229,6 +229,32 @@ func TestParseDfBytes(t *testing.T) {
 	}
 }
 
+func TestCollectWorkspace_InvalidContainerName(t *testing.T) {
+	c := NewCollector(&mockExecutor{responses: map[string]mockResponse{}})
+
+	tests := []string{"foo; rm -rf /", "$(whoami)", "a b", "", "x"}
+	for _, name := range tests {
+		_, err := c.CollectWorkspace(context.Background(), "server1", name)
+		if err == nil {
+			t.Errorf("expected error for invalid container name %q", name)
+		}
+	}
+}
+
+func TestCollectWorkspace_JSONParseError(t *testing.T) {
+	mock := &mockExecutor{
+		responses: map[string]mockResponse{
+			"docker stats badjson": {stdout: "not-json-at-all"},
+		},
+	}
+
+	c := NewCollector(mock)
+	_, err := c.CollectWorkspace(context.Background(), "server1", "badjson-container")
+	if err == nil {
+		t.Fatal("expected error for corrupt docker stats output")
+	}
+}
+
 func TestParseDfBytes_Empty(t *testing.T) {
 	used, total := parseDfBytes("")
 	if used != 0 || total != 0 {

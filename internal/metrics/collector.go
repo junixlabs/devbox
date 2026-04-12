@@ -4,11 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 
 	"github.com/junixlabs/devbox/internal/ssh"
 )
+
+// validContainerName matches valid Docker container names.
+var validContainerName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]+$`)
 
 // dockerStatsJSON mirrors the JSON output of docker stats --format '{{json .}}'.
 type dockerStatsJSON struct {
@@ -31,6 +35,10 @@ func NewCollector(exec ssh.Executor) Collector {
 }
 
 func (c *sshCollector) CollectWorkspace(ctx context.Context, host, container string) (*WorkspaceMetrics, error) {
+	if !validContainerName.MatchString(container) {
+		return nil, fmt.Errorf("invalid container name: %q", container)
+	}
+
 	// Collect docker stats for the single container.
 	cmd := fmt.Sprintf("docker stats %s --no-stream --format '{{json .}}'", container)
 	stdout, _, err := c.exec.Run(ctx, host, cmd)
@@ -41,7 +49,7 @@ func (c *sshCollector) CollectWorkspace(ctx context.Context, host, container str
 
 	wm, err := parseDockerStatsJSON(strings.TrimSpace(stdout))
 	if err != nil {
-		return &WorkspaceMetrics{Container: container, Stopped: true}, nil
+		return nil, fmt.Errorf("parsing stats for container %s: %w", container, err)
 	}
 
 	// Collect disk usage inside the container.
