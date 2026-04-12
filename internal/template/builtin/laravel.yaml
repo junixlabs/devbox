@@ -1,0 +1,19 @@
+name: laravel
+description: Laravel PHP application with MySQL and Redis
+services:
+  - mysql:8.0
+  - redis:7
+ports:
+  app: 8000
+  mysql: 3306
+  redis: 6379
+env:
+  APP_ENV: local
+  DB_CONNECTION: mysql
+  DB_HOST: mysql
+  DB_DATABASE: laravel
+  CACHE_DRIVER: redis
+setup:
+  - composer install
+  - php artisan key:generate
+  - php artisan migrate

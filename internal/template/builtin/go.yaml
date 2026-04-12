@@ -1,0 +1,10 @@
+name: go
+description: Go application
+services: []
+ports:
+  app: 8080
+env:
+  GO111MODULE: "on"
+setup:
+  - go mod download
+  - go build ./...
