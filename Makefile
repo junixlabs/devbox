@@ -6,7 +6,7 @@ LDFLAGS   := -s -w -X main.version=$(VERSION)
 
 PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64
 
-.PHONY: build release clean test test-integration vet
+.PHONY: build release clean test test-unit test-integration test-all vet
 
 build:
 	@mkdir -p $(BUILD_DIR)
@@ -26,10 +26,14 @@ clean:
 	rm -rf $(BUILD_DIR)
 
 test:
-	go test ./...
+	go test -count=1 ./...
+
+test-unit: test
 
 test-integration:
-	go test -tags integration -v -timeout 300s ./tests/integration/
+	go test -tags integration -v -timeout 300s -count=1 ./internal/integration/
+
+test-all: test test-integration
 
 vet:
 	go vet ./...
