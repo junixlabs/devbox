@@ -17,6 +17,7 @@ import (
 	devboxerr "github.com/junixlabs/devbox/internal/errors"
 	"github.com/junixlabs/devbox/internal/identity"
 	"github.com/junixlabs/devbox/internal/server"
+	"github.com/junixlabs/devbox/internal/snapshot"
 	devboxssh "github.com/junixlabs/devbox/internal/ssh"
 	"github.com/junixlabs/devbox/internal/tailscale"
 	tmpl "github.com/junixlabs/devbox/internal/template"
@@ -67,6 +68,8 @@ func main() {
 	rootCmd.AddCommand(serverCmd())
 	rootCmd.AddCommand(templateCmd())
 	rootCmd.AddCommand(tuiCmd(wm))
+	rootCmd.AddCommand(snapshotCmd())
+	rootCmd.AddCommand(restoreCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		printError(err)
@@ -981,3 +984,176 @@ func runTUI(wm workspace.Manager) error {
 	}
 	return tui.Run(wm, sshExec)
 }
+
+func snapshotCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "snapshot <workspace> [name]",
+		Short: "Create a snapshot of a workspace",
+		Long:  "Save a point-in-time snapshot of a workspace's Docker volumes and config files.\nSnapshots are stored as compressed tar archives on the server.",
+		Args:  cobra.RangeArgs(1, 2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			wsName := args[0]
+			snapName := ""
+			if len(args) > 1 {
+				snapName = args[1]
+			}
+
+			serverFlag, _ := cmd.Flags().GetString("server")
+			host, err := resolveServer(serverFlag)
+			if err != nil {
+				return fmt.Errorf("devbox snapshot: %w", err)
+			}
+
+			sshExec, err := devboxssh.New()
+			if err != nil {
+				return fmt.Errorf("devbox snapshot: %w", err)
+			}
+			defer sshExec.Close()
+
+			mgr := snapshot.NewManager(sshExec)
+
+			spin := ui.StartSpinner("Creating snapshot...")
+			snap, err := mgr.Create(cmd.Context(), host, wsName, snapName)
+			if err != nil {
+				ui.StopSpinner(spin, false)
+				return fmt.Errorf("devbox snapshot: %w", err)
+			}
+			ui.StopSpinner(spin, true)
+
+			fmt.Printf("Snapshot %q created (%s)\n", snap.Name, formatBytes(snap.Size))
+			return nil
+		},
+	}
+	cmd.Flags().String("server", "", "Target server (overrides devbox.yaml)")
+	cmd.AddCommand(snapshotListCmd())
+	return cmd
+}
+
+func snapshotListCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "list <workspace>",
+		Short: "List snapshots for a workspace",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			wsName := args[0]
+
+			serverFlag, _ := cmd.Flags().GetString("server")
+			host, err := resolveServer(serverFlag)
+			if err != nil {
+				return fmt.Errorf("devbox snapshot list: %w", err)
+			}
+
+			sshExec, err := devboxssh.New()
+			if err != nil {
+				return fmt.Errorf("devbox snapshot list: %w", err)
+			}
+			defer sshExec.Close()
+
+			mgr := snapshot.NewManager(sshExec)
+			snaps, err := mgr.List(cmd.Context(), host, wsName)
+			if err != nil {
+				return fmt.Errorf("devbox snapshot list: %w", err)
+			}
+
+			if len(snaps) == 0 {
+				fmt.Println("No snapshots found")
+				return nil
+			}
+
+			headers := []string{"NAME", "SIZE", "CREATED"}
+			rows := make([][]string, 0, len(snaps))
+			for _, s := range snaps {
+				rows = append(rows, []string{
+					s.Name,
+					formatBytes(s.Size),
+					s.CreatedAt.Format("2006-01-02 15:04:05"),
+				})
+			}
+			ui.PrintTable(headers, rows)
+			return nil
+		},
+	}
+	cmd.Flags().String("server", "", "Target server (overrides devbox.yaml)")
+	return cmd
+}
+
+func restoreCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "restore <workspace> <snapshot>",
+		Short: "Restore a workspace from a snapshot",
+		Long:  "Restore a workspace's Docker volumes and config files from a previously saved snapshot.\nThe workspace containers will be stopped before restoring and restarted after.",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			wsName, snapName := args[0], args[1]
+
+			serverFlag, _ := cmd.Flags().GetString("server")
+			host, err := resolveServer(serverFlag)
+			if err != nil {
+				return fmt.Errorf("devbox restore: %w", err)
+			}
+
+			sshExec, err := devboxssh.New()
+			if err != nil {
+				return fmt.Errorf("devbox restore: %w", err)
+			}
+			defer sshExec.Close()
+
+			mgr := snapshot.NewManager(sshExec)
+
+			spin := ui.StartSpinner("Restoring snapshot...")
+			if err := mgr.Restore(cmd.Context(), host, wsName, snapName); err != nil {
+				ui.StopSpinner(spin, false)
+				return fmt.Errorf("devbox restore: %w", err)
+			}
+			ui.StopSpinner(spin, true)
+
+			fmt.Printf("Workspace %q restored from snapshot %q\n", wsName, snapName)
+			return nil
+		},
+	}
+	cmd.Flags().String("server", "", "Target server (overrides devbox.yaml)")
+	return cmd
+}
+
+// resolveServer determines the target server from flag or devbox.yaml config.
+// When a flag is provided, it first tries to resolve it as a pool server name.
+func resolveServer(serverFlag string) (string, error) {
+	if serverFlag != "" {
+		// Try to resolve as pool server name.
+		configPath, _ := server.DefaultConfigPath()
+		if pool, err := server.NewFilePool(configPath, nil); err == nil {
+			if servers, err := pool.List(); err == nil {
+				for _, srv := range servers {
+					if srv.Name == serverFlag {
+						return server.SSHHost(&srv), nil
+					}
+				}
+			}
+		}
+		// Not in pool — use as raw hostname.
+		return serverFlag, nil
+	}
+	cfg, err := config.LoadFromDir(".")
+	if err == nil && cfg.Server != "" {
+		return cfg.Server, nil
+	}
+	return "", fmt.Errorf("no server specified — use --server flag or create devbox.yaml")
+}
+
+// formatBytes returns a human-readable byte size string.
+func formatBytes(b int64) string {
+	const (
+		kb = 1024
+		mb = kb * 1024
+		gb = mb * 1024
+	)
+	switch {
+	case b >= gb:
+		return fmt.Sprintf("%.1f GB", float64(b)/float64(gb))
+	case b >= mb:
+		return fmt.Sprintf("%.1f MB", float64(b)/float64(mb))
+	case b >= kb:
+		return fmt.Sprintf("%.1f KB", float64(b)/float64(kb))
+	default:
+		return fmt.Sprintf("%d B", b)
+	}
