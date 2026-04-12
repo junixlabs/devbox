@@ -29,7 +29,7 @@ import (
 )
 
 var (
-	version = "0.3.0"
+	version = "1.0.0"
 	verbose bool
 	noColor bool
 )
@@ -726,8 +726,8 @@ func statsCmd() *cobra.Command {
 					fmt.Fprintf(w, "%s\t%.1f%%\t%s / %s\t%s / %s\t-\n",
 						wm.Container,
 						wm.CPUPercent,
-						formatBytesShort(wm.MemUsage), formatBytesShort(wm.MemLimit),
-						formatBytesShort(wm.NetIn), formatBytesShort(wm.NetOut),
+						formatUint64Bytes(wm.MemUsage), formatUint64Bytes(wm.MemLimit),
+						formatUint64Bytes(wm.NetIn), formatUint64Bytes(wm.NetOut),
 					)
 				}
 				w.Flush()
@@ -735,8 +735,8 @@ func statsCmd() *cobra.Command {
 
 			fmt.Printf("\nServer: CPU %d cores, RAM %s / %s, Disk %s / %s\n",
 				sm.TotalCPUs,
-				formatBytesShort(sm.UsedMem), formatBytesShort(sm.TotalMem),
-				formatBytesShort(sm.UsedDisk), formatBytesShort(sm.TotalDisk),
+				formatUint64Bytes(sm.UsedMem), formatUint64Bytes(sm.TotalMem),
+				formatUint64Bytes(sm.UsedDisk), formatUint64Bytes(sm.TotalDisk),
 			)
 
 			return nil
@@ -749,25 +749,18 @@ func statsCmd() *cobra.Command {
 func printWorkspaceMetrics(wm *metrics.WorkspaceMetrics) {
 	fmt.Printf("Workspace: %s\n", wm.Container)
 	fmt.Printf("  CPU:     %.1f%%\n", wm.CPUPercent)
-	fmt.Printf("  Memory:  %s / %s\n", formatBytesShort(wm.MemUsage), formatBytesShort(wm.MemLimit))
-	fmt.Printf("  Net I/O: %s in / %s out\n", formatBytesShort(wm.NetIn), formatBytesShort(wm.NetOut))
+	fmt.Printf("  Memory:  %s / %s\n", formatUint64Bytes(wm.MemUsage), formatUint64Bytes(wm.MemLimit))
+	fmt.Printf("  Net I/O: %s in / %s out\n", formatUint64Bytes(wm.NetIn), formatUint64Bytes(wm.NetOut))
 	if wm.DiskTotal > 0 {
 		pct := float64(wm.DiskUsage) / float64(wm.DiskTotal) * 100
-		fmt.Printf("  Disk:    %s / %s (%.0f%%)\n", formatBytesShort(wm.DiskUsage), formatBytesShort(wm.DiskTotal), pct)
+		fmt.Printf("  Disk:    %s / %s (%.0f%%)\n", formatUint64Bytes(wm.DiskUsage), formatUint64Bytes(wm.DiskTotal), pct)
 	}
 }
 
-func formatBytesShort(b uint64) string {
-	switch {
-	case b >= 1024*1024*1024:
-		return fmt.Sprintf("%.1fGi", float64(b)/(1024*1024*1024))
-	case b >= 1024*1024:
-		return fmt.Sprintf("%.0fMi", float64(b)/(1024*1024))
-	case b >= 1024:
-		return fmt.Sprintf("%.0fKi", float64(b)/1024)
-	default:
-		return fmt.Sprintf("%dB", b)
-	}
+// formatUint64Bytes converts uint64 byte values to a human-readable string
+// by delegating to workspace.FormatBytes.
+func formatUint64Bytes(b uint64) string {
+	return workspace.FormatBytes(int64(b))
 }
 
 func serverCmd() *cobra.Command {
@@ -1108,7 +1101,7 @@ func snapshotCmd() *cobra.Command {
 			}
 			ui.StopSpinner(spin, true)
 
-			fmt.Printf("Snapshot %q created (%s)\n", snap.Name, formatBytes(snap.Size))
+			fmt.Printf("Snapshot %q created (%s)\n", snap.Name, workspace.FormatBytes(snap.Size))
 			return nil
 		},
 	}
@@ -1153,7 +1146,7 @@ func snapshotListCmd() *cobra.Command {
 			for _, s := range snaps {
 				rows = append(rows, []string{
 					s.Name,
-					formatBytes(s.Size),
+					workspace.FormatBytes(s.Size),
 					s.CreatedAt.Format("2006-01-02 15:04:05"),
 				})
 			}
@@ -1228,10 +1221,3 @@ func resolveServer(serverFlag string) (string, error) {
 	return "", fmt.Errorf("no server specified — use --server flag or create devbox.yaml")
 }
 
-// formatBytes returns a human-readable byte size string.
-func formatBytes(b int64) string {
-	if b < 0 {
-		return "0B"
-	}
-	return formatBytesShort(uint64(b))
-}

@@ -3,7 +3,6 @@ package tui
 import (
 	"fmt"
 	"os/exec"
-	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -137,27 +136,12 @@ func (m Model) execSSH(name string) tea.Cmd {
 		}
 	}
 
-	containerName := ws.Name + "-" + tuiFirstService(ws.Services) + "-1"
+	containerName := ws.Name + "-" + workspace.FirstService(ws.Services) + "-1"
 	sshCmd := fmt.Sprintf("docker exec -it '%s' /bin/sh", containerName)
 	c := exec.Command("ssh", "-t", ws.ServerHost, sshCmd)
 	return tea.ExecProcess(c, func(err error) tea.Msg {
 		return workspaceActionDoneMsg{action: "ssh", name: name, err: err}
 	})
-}
-
-// tuiFirstService returns the base name of the first service, or "app" as default.
-func tuiFirstService(services []string) string {
-	if len(services) == 0 {
-		return "app"
-	}
-	svc := services[0]
-	if i := strings.LastIndex(svc, ":"); i != -1 {
-		svc = svc[:i]
-	}
-	if i := strings.LastIndex(svc, "/"); i != -1 {
-		svc = svc[i+1:]
-	}
-	return svc
 }
 
 // Run starts the TUI program with alt-screen.

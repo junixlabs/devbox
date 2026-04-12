@@ -154,9 +154,9 @@ func TestFirstService(t *testing.T) {
 		{[]string{"postgres"}, "postgres"},
 	}
 	for _, tt := range tests {
-		got := firstService(tt.services)
+		got := FirstService(tt.services)
 		if got != tt.want {
-			t.Errorf("firstService(%v) = %q, want %q", tt.services, got, tt.want)
+			t.Errorf("FirstService(%v) = %q, want %q", tt.services, got, tt.want)
 		}
 	}
 }

@@ -148,7 +148,7 @@ func CheckLowResources(info *ServerResourceInfo, threshold float64) []string {
 		if memPct >= threshold {
 			warnings = append(warnings, fmt.Sprintf(
 				"Server memory usage at %.0f%% (%s/%s)",
-				memPct, formatBytes(info.UsedMemoryBytes), formatBytes(info.TotalMemoryBytes),
+				memPct, FormatBytes(info.UsedMemoryBytes), FormatBytes(info.TotalMemoryBytes),
 			))
 		}
 	}
@@ -161,12 +161,12 @@ func FormatResourceUsage(ru *ResourceUsage) (cpuStr, memStr string) {
 		return "-", "-"
 	}
 	cpuStr = fmt.Sprintf("%.1f%%", ru.CPUPercent)
-	memStr = fmt.Sprintf("%s / %s (%.1f%%)", formatBytes(ru.MemoryUsed), formatBytes(ru.MemoryLimit), ru.MemoryPercent)
+	memStr = fmt.Sprintf("%s / %s (%.1f%%)", FormatBytes(ru.MemoryUsed), FormatBytes(ru.MemoryLimit), ru.MemoryPercent)
 	return cpuStr, memStr
 }
 
-// formatBytes converts bytes to a human-readable string.
-func formatBytes(b int64) string {
+// FormatBytes converts bytes to a human-readable string.
+func FormatBytes(b int64) string {
 	switch {
 	case b >= 1024*1024*1024:
 		return fmt.Sprintf("%.1fGi", float64(b)/(1024*1024*1024))

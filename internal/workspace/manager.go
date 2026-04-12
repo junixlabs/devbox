@@ -285,7 +285,7 @@ func (m *remoteManager) SSH(name string) error {
 	}
 
 	// Use ssh -t to allocate a TTY, then docker exec into the first service container.
-	containerName := ws.Name + "-" + firstService(ws.Services) + "-1"
+	containerName := ws.Name + "-" + FirstService(ws.Services) + "-1"
 	sshCmd := fmt.Sprintf("docker exec -it %s /bin/sh", containerName)
 	slog.Debug("ssh into container", "host", ws.ServerHost, "container", containerName)
 
@@ -353,8 +353,9 @@ func (m *remoteManager) mustGet(name string) (*Workspace, error) {
 	return ws, nil
 }
 
-// firstService returns the base name of the first service, or "app" as default.
-func firstService(services []string) string {
+// FirstService returns the base name of the first service, or "app" as default.
+// Strips registry prefix and tag from image names (e.g. "bitnami/redis:7" → "redis").
+func FirstService(services []string) string {
 	if len(services) == 0 {
 		return "app"
 	}
