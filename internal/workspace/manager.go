@@ -109,14 +109,19 @@ func (m *remoteManager) Create(params CreateParams) (*Workspace, error) {
 	}
 
 	// Generate compose YAML and deploy via docker manager.
+	var res *config.Resources
+	if !params.Resources.IsZero() {
+		res = &params.Resources
+	}
 	cfg := &config.DevboxConfig{
-		Name:     params.Name,
-		Server:   params.Server,
-		Repo:     params.Repo,
-		Branch:   params.Branch,
-		Services: params.Services,
-		Ports:    params.Ports,
-		Env:      params.Env,
+		Name:      params.Name,
+		Server:    params.Server,
+		Repo:      params.Repo,
+		Branch:    params.Branch,
+		Services:  params.Services,
+		Ports:     params.Ports,
+		Env:       params.Env,
+		Resources: res,
 	}
 	composeYAML, err := docker.GenerateCompose(params.Name, cfg)
 	if err != nil {
@@ -146,6 +151,7 @@ func (m *remoteManager) Create(params CreateParams) (*Workspace, error) {
 		Ports:      params.Ports,
 		Env:        params.Env,
 		Services:   params.Services,
+		Resources:  params.Resources,
 		CreatedAt:  now,
 		StartedAt:  &now,
 	}
@@ -292,6 +298,40 @@ func (m *remoteManager) SSH(name string) error {
 		}
 	}
 	return nil
+}
+
+func (m *remoteManager) DockerStats(host string) (map[string]*ResourceUsage, error) {
+	sshExec, err := newSSH()
+	if err != nil {
+		return nil, err
+	}
+	defer sshExec.Close()
+
+	cmd := `docker stats --no-stream --format "{{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}"`
+	stdout, _, err := sshExec.Run(context.Background(), host, cmd)
+	if err != nil {
+		return nil, fmt.Errorf("running docker stats on %s: %w", host, err)
+	}
+	return ParseDockerStats(stdout)
+}
+
+func (m *remoteManager) ServerResources(host string) (*ServerResourceInfo, error) {
+	sshExec, err := newSSH()
+	if err != nil {
+		return nil, err
+	}
+	defer sshExec.Close()
+
+	ctx := context.Background()
+	cpuOut, _, err := sshExec.Run(ctx, host, "nproc")
+	if err != nil {
+		return nil, fmt.Errorf("running nproc on %s: %w", host, err)
+	}
+	memOut, _, err := sshExec.Run(ctx, host, "cat /proc/meminfo")
+	if err != nil {
+		return nil, fmt.Errorf("reading /proc/meminfo on %s: %w", host, err)
+	}
+	return ParseServerResources(cpuOut, memOut)
 }
 
 // mustGet returns a workspace by name, or a WorkspaceError if not found.

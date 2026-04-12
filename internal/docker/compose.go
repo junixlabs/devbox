@@ -23,6 +23,23 @@ type composeService struct {
 	Environment map[string]string `yaml:"environment,omitempty"`
 	Volumes     []string          `yaml:"volumes,omitempty"`
 	Restart     string            `yaml:"restart"`
+	Deploy      *composeDeploy    `yaml:"deploy,omitempty"`
+}
+
+// composeDeploy holds deployment configuration for a compose service.
+type composeDeploy struct {
+	Resources composeResources `yaml:"resources"`
+}
+
+// composeResources holds resource constraints.
+type composeResources struct {
+	Limits composeResourceLimits `yaml:"limits"`
+}
+
+// composeResourceLimits holds CPU and memory limits for a service.
+type composeResourceLimits struct {
+	CPUs   string `yaml:"cpus,omitempty"`
+	Memory string `yaml:"memory,omitempty"`
 }
 
 // knownVolumes maps service name prefixes to their default data paths.
@@ -109,6 +126,18 @@ func GenerateCompose(workspaceName string, cfg *config.DevboxConfig) ([]byte, er
 			}
 		}
 
+		// Apply resource limits if configured.
+		if cfg.Resources != nil && !cfg.Resources.IsZero() {
+			svc.Deploy = &composeDeploy{
+				Resources: composeResources{
+					Limits: composeResourceLimits{
+						CPUs:   formatCPUs(cfg.Resources.CPUs),
+						Memory: cfg.Resources.Memory,
+					},
+				},
+			}
+		}
+
 		cf.Services[svcName] = svc
 	}
 
@@ -129,4 +158,13 @@ func GenerateCompose(workspaceName string, cfg *config.DevboxConfig) ([]byte, er
 		return nil, fmt.Errorf("marshal compose file: %w", err)
 	}
 	return data, nil
+}
+
+// formatCPUs converts a float64 CPU count to a string for compose deploy limits.
+// Returns empty string for zero values.
+func formatCPUs(cpus float64) string {
+	if cpus == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%.2f", cpus)
 }

@@ -132,15 +132,26 @@ func upCmd(wm workspace.Manager) *cobra.Command {
 				return fmt.Errorf("devbox up: server is required — add 'server:' to devbox.yaml or use --server flag")
 			}
 
+			// Merge resource limits: server defaults <- workspace overrides.
+			globalCfg, err := config.LoadGlobal()
+			if err != nil {
+				slog.Warn("failed to load global config", "error", err)
+			}
+			resources := config.MergeResources(
+				globalCfg.ServerResourceDefaults(cfg.Server),
+				cfg.Resources,
+			)
+
 			spin := ui.StartSpinner("Starting workspace...")
 			ws, err := wm.Create(workspace.CreateParams{
-				Name:     cfg.Name,
-				Server:   cfg.Server,
-				Repo:     cfg.Repo,
-				Branch:   cfg.Branch,
-				Services: cfg.Services,
-				Ports:    cfg.Ports,
-				Env:      cfg.Env,
+				Name:      cfg.Name,
+				Server:    cfg.Server,
+				Repo:      cfg.Repo,
+				Branch:    cfg.Branch,
+				Services:  cfg.Services,
+				Ports:     cfg.Ports,
+				Env:       cfg.Env,
+				Resources: resources,
 			})
 			if err != nil {
 				// If workspace already exists, start it instead.
@@ -226,7 +237,7 @@ func listCmd(wm workspace.Manager) *cobra.Command {
 		Use:     "list",
 		Aliases: []string{"ls"},
 		Short:   "List all workspaces",
-		Long:    "List all workspaces across all configured servers.\nShows status, project, branch, and server for each workspace.",
+		Long:    "List all workspaces across all configured servers.\nShows status, resource limits, and server for each workspace.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			workspaces, err := wm.List()
 			if err != nil {
@@ -238,18 +249,84 @@ func listCmd(wm workspace.Manager) *cobra.Command {
 				return nil
 			}
 
-			headers := []string{"NAME", "STATUS", "SERVER", "PORTS", "CREATED"}
+			// Collect unique servers with running workspaces for live stats.
+			serverHosts := make(map[string]bool)
+			for _, ws := range workspaces {
+				if ws.Status == workspace.StatusRunning {
+					serverHosts[ws.ServerHost] = true
+				}
+			}
+
+			// Fetch live docker stats per server (best-effort).
+			allStats := make(map[string]*workspace.ResourceUsage)
+			serverInfos := make(map[string]*workspace.ServerResourceInfo)
+			for host := range serverHosts {
+				stats, err := wm.DockerStats(host)
+				if err != nil {
+					slog.Debug("failed to fetch docker stats", "host", host, "error", err)
+				} else {
+					for k, v := range stats {
+						allStats[k] = v
+					}
+				}
+				info, err := wm.ServerResources(host)
+				if err != nil {
+					slog.Debug("failed to fetch server resources", "host", host, "error", err)
+				} else {
+					// Aggregate used resources from container stats.
+					for _, s := range stats {
+						if info.TotalCPUs > 0 {
+							info.UsedCPUs += s.CPUPercent / 100.0 * float64(info.TotalCPUs)
+						}
+						info.UsedMemoryBytes += s.MemoryUsed
+					}
+					serverInfos[host] = info
+				}
+			}
+
+			headers := []string{"NAME", "STATUS", "SERVER", "CPUS", "MEMORY", "CPU%", "MEM%", "PORTS", "CREATED"}
 			rows := make([][]string, 0, len(workspaces))
 			for _, ws := range workspaces {
+				cpus := "-"
+				mem := "-"
+				if !ws.Resources.IsZero() {
+					if ws.Resources.CPUs > 0 {
+						cpus = fmt.Sprintf("%.1f", ws.Resources.CPUs)
+					}
+					if ws.Resources.Memory != "" {
+						mem = ws.Resources.Memory
+					}
+				}
+				cpuPct := "-"
+				memPct := "-"
+				// Match container name: workspace containers are named <name>-<service>-1
+				for statName, ru := range allStats {
+					if strings.HasPrefix(statName, ws.Name+"-") {
+						cpuPct, memPct = workspace.FormatResourceUsage(ru)
+						break
+					}
+				}
 				rows = append(rows, []string{
 					ws.Name,
 					ui.StatusColor(ws.Status),
 					ws.ServerHost,
+					cpus,
+					mem,
+					cpuPct,
+					memPct,
 					formatPorts(ws.Ports),
 					timeAgo(ws.CreatedAt),
 				})
 			}
 			ui.PrintTable(headers, rows)
+
+			// Emit low-resource warnings to stderr.
+			for host, info := range serverInfos {
+				warnings := workspace.CheckLowResources(info, workspace.LowResourceThreshold)
+				for _, w := range warnings {
+					fmt.Fprintf(os.Stderr, "⚠ %s: %s\n", host, w)
+				}
+			}
 
 			return nil
 		},

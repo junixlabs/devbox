@@ -5,10 +5,77 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
+	"strings"
 
 	devboxerr "github.com/junixlabs/devbox/internal/errors"
 	"gopkg.in/yaml.v3"
 )
+
+// memPattern matches Docker-compatible memory strings like "512m", "4g".
+var memPattern = regexp.MustCompile(`^[0-9]+[gGmM]$`)
+
+// Resources defines CPU and memory limits for a workspace container.
+type Resources struct {
+	CPUs   float64 `yaml:"cpus,omitempty"`
+	Memory string  `yaml:"memory,omitempty"`
+}
+
+// IsZero returns true if no resource limits are configured.
+func (r Resources) IsZero() bool {
+	return r.CPUs == 0 && r.Memory == ""
+}
+
+// Validate checks that resource values are sensible.
+func (r Resources) Validate() error {
+	if r.CPUs < 0 {
+		return fmt.Errorf("resources.cpus must be positive, got %g", r.CPUs)
+	}
+	if r.Memory != "" && !memPattern.MatchString(r.Memory) {
+		return fmt.Errorf("resources.memory must match <number>(g|m), got %q", r.Memory)
+	}
+	return nil
+}
+
+// ParseMemoryBytes converts a Docker memory string like "4g" or "512m" to bytes.
+func ParseMemoryBytes(mem string) (int64, error) {
+	if mem == "" {
+		return 0, nil
+	}
+	mem = strings.ToLower(mem)
+	suffix := mem[len(mem)-1]
+	num, err := strconv.ParseInt(mem[:len(mem)-1], 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("invalid memory value %q: %w", mem, err)
+	}
+	switch suffix {
+	case 'g':
+		return num * 1024 * 1024 * 1024, nil
+	case 'm':
+		return num * 1024 * 1024, nil
+	default:
+		return 0, fmt.Errorf("unsupported memory suffix %q in %q", string(suffix), mem)
+	}
+}
+
+// MergeResources returns a Resources where workspace overrides take precedence
+// over server defaults for each field that is set.
+func MergeResources(serverDefaults, workspaceOverride *Resources) Resources {
+	result := Resources{}
+	if serverDefaults != nil {
+		result = *serverDefaults
+	}
+	if workspaceOverride != nil {
+		if workspaceOverride.CPUs > 0 {
+			result.CPUs = workspaceOverride.CPUs
+		}
+		if workspaceOverride.Memory != "" {
+			result.Memory = workspaceOverride.Memory
+		}
+	}
+	return result
+}
 
 // DevboxConfig represents the per-project devbox.yaml configuration.
 type DevboxConfig struct {
@@ -18,7 +85,8 @@ type DevboxConfig struct {
 	Branch   string            `yaml:"branch,omitempty"`
 	Services []string          `yaml:"services,omitempty"`
 	Ports    map[string]int    `yaml:"ports,omitempty"`
-	Env      map[string]string `yaml:"env,omitempty"`
+	Env       map[string]string `yaml:"env,omitempty"`
+	Resources *Resources        `yaml:"resources,omitempty"`
 }
 
 // DefaultConfigFile is the default config filename looked up in the project root.
@@ -60,7 +128,62 @@ func Load(path string) (*DevboxConfig, error) {
 		)
 	}
 
+	if cfg.Resources != nil {
+		if err := cfg.Resources.Validate(); err != nil {
+			return nil, devboxerr.NewConfigError(
+				fmt.Sprintf("config file %s: %v", path, err),
+				"Example: resources: {cpus: 2, memory: 4g}",
+				nil,
+			)
+		}
+	}
+
 	return &cfg, nil
+}
+
+// ServerDefaults holds per-server default settings.
+type ServerDefaults struct {
+	Resources Resources `yaml:"resources"`
+}
+
+// GlobalConfig represents the user-level ~/.devbox/config.yaml.
+type GlobalConfig struct {
+	Servers map[string]ServerDefaults `yaml:"servers"`
+}
+
+// LoadGlobal reads the global config from ~/.devbox/config.yaml.
+// Returns an empty config (not an error) if the file doesn't exist.
+func LoadGlobal() (*GlobalConfig, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return &GlobalConfig{}, nil
+	}
+	path := filepath.Join(home, ".devbox", "config.yaml")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return &GlobalConfig{}, nil
+	}
+	var gc GlobalConfig
+	if err := yaml.Unmarshal(data, &gc); err != nil {
+		return nil, devboxerr.NewConfigError(
+			fmt.Sprintf("failed to parse global config %s", path),
+			"Check YAML syntax in ~/.devbox/config.yaml",
+			err,
+		)
+	}
+	return &gc, nil
+}
+
+// ServerResourceDefaults returns the resource defaults for a given server,
+// or nil if no defaults are configured.
+func (gc *GlobalConfig) ServerResourceDefaults(server string) *Resources {
+	if gc == nil || gc.Servers == nil {
+		return nil
+	}
+	if sd, ok := gc.Servers[server]; ok {
+		return &sd.Resources
+	}
+	return nil
 }
 
 // LoadFromDir looks for devbox.yaml in the given directory and loads it.
