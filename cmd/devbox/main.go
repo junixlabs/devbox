@@ -13,6 +13,7 @@ import (
 
 	"github.com/junixlabs/devbox/internal/config"
 	"github.com/junixlabs/devbox/internal/doctor"
+	"github.com/junixlabs/devbox/internal/identity"
 	devboxerr "github.com/junixlabs/devbox/internal/errors"
 	devboxssh "github.com/junixlabs/devbox/internal/ssh"
 	"github.com/junixlabs/devbox/internal/tailscale"
@@ -129,9 +130,25 @@ func upCmd(wm workspace.Manager) *cobra.Command {
 				return fmt.Errorf("devbox up: server is required — add 'server:' to devbox.yaml or use --server flag")
 			}
 
+			// Resolve user identity for workspace naming.
+			idResolver := identity.NewResolver(nil)
+			user := ""
+			if id, err := idResolver.Current(); err == nil {
+				user = id.Username
+				slog.Debug("resolved user identity", "user", user, "source", id.Source)
+			} else {
+				slog.Debug("no user identity available, using unnamed workspace", "error", err)
+			}
+
+			wsName := cfg.Name
+			if user != "" {
+				wsName = workspace.FormatName(user, cfg.Name, cfg.Branch)
+			}
+
 			spin := ui.StartSpinner("Starting workspace...")
 			ws, err := wm.Create(workspace.CreateParams{
-				Name:     cfg.Name,
+				Name:     wsName,
+				User:     user,
 				Server:   cfg.Server,
 				Repo:     cfg.Repo,
 				Branch:   cfg.Branch,
@@ -143,11 +160,11 @@ func upCmd(wm workspace.Manager) *cobra.Command {
 				// If workspace already exists, start it instead.
 				var wsErr *workspace.WorkspaceError
 				if errors.As(err, &wsErr) && strings.Contains(wsErr.Message, "already exists") {
-					if startErr := wm.Start(cfg.Name); startErr != nil {
+					if startErr := wm.Start(wsName); startErr != nil {
 						ui.StopSpinner(spin, false)
 						return fmt.Errorf("devbox up: %w", startErr)
 					}
-					ws, err = wm.Get(cfg.Name)
+					ws, err = wm.Get(wsName)
 					if err != nil {
 						ui.StopSpinner(spin, false)
 						return fmt.Errorf("devbox up: %w", err)
@@ -219,13 +236,23 @@ func stopCmd(wm workspace.Manager) *cobra.Command {
 }
 
 func listCmd(wm workspace.Manager) *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:     "list",
 		Aliases: []string{"ls"},
-		Short:   "List all workspaces",
-		Long:    "List all workspaces across all configured servers.\nShows status, project, branch, and server for each workspace.",
+		Short:   "List workspaces",
+		Long:    "List workspaces across all configured servers.\nBy default, shows only your workspaces. Use --all to show all users' workspaces.",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			workspaces, err := wm.List()
+			allFlag, _ := cmd.Flags().GetBool("all")
+
+			opts := workspace.ListOptions{All: allFlag}
+			if !allFlag {
+				idResolver := identity.NewResolver(nil)
+				if id, err := idResolver.Current(); err == nil {
+					opts.User = id.Username
+				}
+			}
+
+			workspaces, err := wm.List(opts)
 			if err != nil {
 				return fmt.Errorf("devbox list: %w", err)
 			}
@@ -235,11 +262,12 @@ func listCmd(wm workspace.Manager) *cobra.Command {
 				return nil
 			}
 
-			headers := []string{"NAME", "STATUS", "SERVER", "PORTS", "CREATED"}
+			headers := []string{"NAME", "USER", "STATUS", "SERVER", "PORTS", "CREATED"}
 			rows := make([][]string, 0, len(workspaces))
 			for _, ws := range workspaces {
 				rows = append(rows, []string{
 					ws.Name,
+					ws.User,
 					ui.StatusColor(ws.Status),
 					ws.ServerHost,
 					formatPorts(ws.Ports),
@@ -251,6 +279,8 @@ func listCmd(wm workspace.Manager) *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().Bool("all", false, "Show all users' workspaces")
+	return cmd
 }
 
 func destroyCmd(wm workspace.Manager) *cobra.Command {

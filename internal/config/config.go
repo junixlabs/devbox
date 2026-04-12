@@ -19,9 +19,14 @@ type DevboxConfig struct {
 	Services []string          `yaml:"services,omitempty"`
 	Ports    map[string]int    `yaml:"ports,omitempty"`
 	Env      map[string]string `yaml:"env,omitempty"`
+	WorkspacesRoot string            `yaml:"workspaces_root,omitempty"`
 }
 
 // DefaultConfigFile is the default config filename looked up in the project root.
+
+// DefaultWorkspacesRoot is the default base directory for workspaces on the server.
+const DefaultWorkspacesRoot = "/workspaces"
+
 const DefaultConfigFile = "devbox.yaml"
 
 // Load reads and parses a devbox.yaml file from the given path.
@@ -58,6 +63,10 @@ func Load(path string) (*DevboxConfig, error) {
 			"Add 'server: your-server' to devbox.yaml",
 			nil,
 		)
+	}
+
+	if cfg.WorkspacesRoot == "" {
+		cfg.WorkspacesRoot = DefaultWorkspacesRoot
 	}
 
 	return &cfg, nil

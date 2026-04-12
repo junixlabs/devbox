@@ -138,6 +138,7 @@ func (m *remoteManager) Create(params CreateParams) (*Workspace, error) {
 	now := time.Now()
 	ws := &Workspace{
 		Name:       params.Name,
+		User:       params.User,
 		Project:    params.Name,
 		Branch:     params.Branch,
 		Status:     StatusRunning,
@@ -244,7 +245,7 @@ func (m *remoteManager) Destroy(name string) error {
 	return m.state.Delete(name)
 }
 
-func (m *remoteManager) List() ([]Workspace, error) {
+func (m *remoteManager) List(opts ListOptions) ([]Workspace, error) {
 	workspaces, err := m.state.Load()
 	if err != nil {
 		return nil, fmt.Errorf("loading workspace state: %w", err)
@@ -252,6 +253,9 @@ func (m *remoteManager) List() ([]Workspace, error) {
 
 	result := make([]Workspace, 0, len(workspaces))
 	for _, ws := range workspaces {
+		if !opts.All && opts.User != "" && ws.User != opts.User {
+			continue
+		}
 		result = append(result, *ws)
 	}
 	return result, nil
