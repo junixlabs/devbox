@@ -185,7 +185,7 @@ func TestManager_GetNotFound(t *testing.T) {
 
 func TestManager_ListEmpty(t *testing.T) {
 	mgr := testManager(t)
-	workspaces, err := mgr.List()
+	workspaces, err := mgr.List(ListOptions{All: true})
 	if err != nil {
 		t.Fatalf("List() error: %v", err)
 	}
@@ -208,7 +208,7 @@ func TestManager_ListWithWorkspaces(t *testing.T) {
 		})
 	}
 
-	workspaces, err := mgr.List()
+	workspaces, err := mgr.List(ListOptions{All: true})
 	if err != nil {
 		t.Fatalf("List() error: %v", err)
 	}
@@ -353,5 +353,70 @@ func TestManager_StartAlreadyRunning(t *testing.T) {
 	err := mgr.Start("running-ws")
 	if err != nil {
 		t.Fatalf("Start() error: %v", err)
+	}
+}
+
+func TestManager_ListFilterByUser(t *testing.T) {
+	mgr := testManager(t)
+	now := time.Now()
+	mgr.state.Put(&Workspace{
+		Name: "alice-proj", User: "alice", Project: "proj",
+		Status: StatusRunning, ServerHost: "devbox-vps", CreatedAt: now,
+	})
+	mgr.state.Put(&Workspace{
+		Name: "bob-proj", User: "bob", Project: "proj",
+		Status: StatusRunning, ServerHost: "devbox-vps", CreatedAt: now,
+	})
+
+	ws, err := mgr.List(ListOptions{User: "alice"})
+	if err != nil {
+		t.Fatalf("List() error: %v", err)
+	}
+	if len(ws) != 1 {
+		t.Errorf("List(alice) returned %d, want 1", len(ws))
+	}
+	if len(ws) > 0 && ws[0].User != "alice" {
+		t.Errorf("expected alice's workspace, got user=%q", ws[0].User)
+	}
+
+	all, err := mgr.List(ListOptions{All: true})
+	if err != nil {
+		t.Fatalf("List(all) error: %v", err)
+	}
+	if len(all) != 2 {
+		t.Errorf("List(all) returned %d, want 2", len(all))
+	}
+}
+
+func TestFormatName(t *testing.T) {
+	tests := []struct {
+		user, project, branch, want string
+	}{
+		{"alice", "myapp", "main", "alice-myapp-main"},
+		{"bob", "proj", "", "bob-proj"},
+		{"Alice", "MyApp", "feature/auth", "alice-myapp-feature-auth"},
+	}
+	for _, tt := range tests {
+		got := FormatName(tt.user, tt.project, tt.branch)
+		if got != tt.want {
+			t.Errorf("FormatName(%q, %q, %q) = %q, want %q",
+				tt.user, tt.project, tt.branch, got, tt.want)
+		}
+	}
+}
+
+func TestFormatPath(t *testing.T) {
+	tests := []struct {
+		root, user, project, branch, want string
+	}{
+		{"/workspaces", "alice", "myapp", "main", "/workspaces/alice/myapp-main"},
+		{"/workspaces", "bob", "proj", "", "/workspaces/bob/proj"},
+	}
+	for _, tt := range tests {
+		got := FormatPath(tt.root, tt.user, tt.project, tt.branch)
+		if got != tt.want {
+			t.Errorf("FormatPath(%q, %q, %q, %q) = %q, want %q",
+				tt.root, tt.user, tt.project, tt.branch, got, tt.want)
+		}
 	}
 }

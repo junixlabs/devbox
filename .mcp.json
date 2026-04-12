@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "forge": {
+      "enabled": true,
+      "headers": {
+        "X-Forge-API-Key": "fk_2f4604e7fa600140a05e53952916888c52da0862ebf8e122",
+        "X-Forge-Project-Slug": "home-kieutrung-tools-devbox"
+      },
+      "type": "http",
+      "url": "https://jarvis-agent.thejunix.com/mcp"
+    }
+  }
+}

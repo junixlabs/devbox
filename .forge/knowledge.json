@@ -1,0 +1,38 @@
+{
+  "project": "Go CLI tool that turns any Linux machine into a ready-to-use dev environment via Docker + Tailscale",
+  "architecture": "CLI (cobra) → internal packages (config, workspace, tailscale) → SSH to remote server → Docker containers per workspace, networked via Tailscale mesh VPN",
+  "paths": {
+    "cli": "cmd/devbox/",
+    "internal": "internal/{package}/",
+    "config": "internal/config/",
+    "workspace": "internal/workspace/",
+    "tailscale": "internal/tailscale/",
+    "specs": ".claude/specs/"
+  },
+  "domains": {
+    "cli": ["devbox"],
+    "config": ["config"],
+    "workspace": ["workspace"],
+    "networking": ["tailscale"]
+  },
+  "conventions": {
+    "naming": "Go standard: lowercase packages, CamelCase exports, snake_case files",
+    "api": "Cobra subcommands in cmd/devbox/main.go, business logic in internal/ packages via Manager interfaces",
+    "state": "Interface-driven design: workspace.Manager and tailscale.Manager define contracts; implementations TBD",
+    "config": "Per-project devbox.yaml parsed by internal/config; struct tags for yaml unmarshalling",
+    "errors": "fmt.Errorf with %w wrapping for context"
+  },
+  "recipes": {
+    "new-command": "1. Add func {name}Cmd() *cobra.Command in cmd/devbox/main.go  2. Wire with rootCmd.AddCommand({name}Cmd())  3. Implement RunE handler calling internal/ packages",
+    "new-internal-package": "1. Create internal/{name}/{name}.go  2. Define Manager interface with methods  3. Implement concrete struct satisfying the interface  4. Import and use from cmd/devbox/main.go",
+    "build": "go build -o devbox ./cmd/devbox/",
+    "add-config-field": "1. Add field to DevboxConfig struct in internal/config/config.go with yaml tag  2. Add validation in Load() if required  3. Update devbox.yaml.example"
+  },
+  "commands": {
+    "build": "go build -o devbox ./cmd/devbox/",
+    "run": "./devbox <command>",
+    "test": "go test ./...",
+    "lint": "go vet ./...",
+    "install": "go build -o devbox ./cmd/devbox/ && sudo mv devbox /usr/local/bin/"
+  }
+}
