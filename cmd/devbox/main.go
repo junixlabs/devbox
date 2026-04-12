@@ -874,7 +874,7 @@ func snapshotCmd() *cobra.Command {
 			mgr := snapshot.NewManager(sshExec)
 
 			spin := ui.StartSpinner("Creating snapshot...")
-			snap, err := mgr.Create(host, wsName, snapName)
+			snap, err := mgr.Create(cmd.Context(), host, wsName, snapName)
 			if err != nil {
 				ui.StopSpinner(spin, false)
 				return fmt.Errorf("devbox snapshot: %w", err)
@@ -911,7 +911,7 @@ func snapshotListCmd() *cobra.Command {
 			defer sshExec.Close()
 
 			mgr := snapshot.NewManager(sshExec)
-			snaps, err := mgr.List(host, wsName)
+			snaps, err := mgr.List(cmd.Context(), host, wsName)
 			if err != nil {
 				return fmt.Errorf("devbox snapshot list: %w", err)
 			}
@@ -962,7 +962,7 @@ func restoreCmd() *cobra.Command {
 			mgr := snapshot.NewManager(sshExec)
 
 			spin := ui.StartSpinner("Restoring snapshot...")
-			if err := mgr.Restore(host, wsName, snapName); err != nil {
+			if err := mgr.Restore(cmd.Context(), host, wsName, snapName); err != nil {
 				ui.StopSpinner(spin, false)
 				return fmt.Errorf("devbox restore: %w", err)
 			}
@@ -977,8 +977,21 @@ func restoreCmd() *cobra.Command {
 }
 
 // resolveServer determines the target server from flag or devbox.yaml config.
+// When a flag is provided, it first tries to resolve it as a pool server name.
 func resolveServer(serverFlag string) (string, error) {
 	if serverFlag != "" {
+		// Try to resolve as pool server name.
+		configPath, _ := server.DefaultConfigPath()
+		if pool, err := server.NewFilePool(configPath, nil); err == nil {
+			if servers, err := pool.List(); err == nil {
+				for _, srv := range servers {
+					if srv.Name == serverFlag {
+						return server.SSHHost(&srv), nil
+					}
+				}
+			}
+		}
+		// Not in pool — use as raw hostname.
 		return serverFlag, nil
 	}
 	cfg, err := config.LoadFromDir(".")

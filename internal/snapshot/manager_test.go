@@ -4,14 +4,16 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 	"testing"
 )
 
 // mockExecutor records SSH commands and returns canned responses.
 type mockExecutor struct {
-	commands []string
-	results  map[string]mockResult
+	commands   []string
+	results    map[string]mockResult
+	sortedKeys []string // longest-first for deterministic prefix matching
 }
 
 type mockResult struct {
@@ -28,12 +30,21 @@ func newMockExecutor() *mockExecutor {
 
 func (m *mockExecutor) on(cmdPrefix string, stdout string, err error) {
 	m.results[cmdPrefix] = mockResult{stdout: stdout, err: err}
+	// Rebuild sorted keys: longest first for deterministic matching.
+	m.sortedKeys = make([]string, 0, len(m.results))
+	for k := range m.results {
+		m.sortedKeys = append(m.sortedKeys, k)
+	}
+	sort.Slice(m.sortedKeys, func(i, j int) bool {
+		return len(m.sortedKeys[i]) > len(m.sortedKeys[j])
+	})
 }
 
 func (m *mockExecutor) Run(_ context.Context, _ string, command string) (string, string, error) {
 	m.commands = append(m.commands, command)
-	for prefix, res := range m.results {
+	for _, prefix := range m.sortedKeys {
 		if strings.HasPrefix(command, prefix) {
+			res := m.results[prefix]
 			return res.stdout, res.stderr, res.err
 		}
 	}
@@ -62,15 +73,14 @@ func (m *mockExecutor) hasCommandContaining(substr string) bool {
 func TestCreate(t *testing.T) {
 	mock := newMockExecutor()
 	mock.on("mkdir", "", nil)
-	mock.on("docker ps", "myapp-web-1", nil)
-	mock.on("docker ps -a", "myapp-web-1", nil)
+	mock.on("docker ps -a", "myapp-web-1\nmyapp-db-1", nil)
 	mock.on("docker inspect", "/var/lib/docker/volumes/myapp_data/_data ", nil)
 	mock.on("for f in", "/workspaces/myapp/devbox.yaml ", nil)
 	mock.on("tar czf", "", nil)
 	mock.on("stat --printf", "1048576", nil)
 
 	mgr := NewManager(mock)
-	snap, err := mgr.Create("server1", "myapp", "backup1")
+	snap, err := mgr.Create(context.Background(), "server1", "myapp", "backup1")
 	if err != nil {
 		t.Fatalf("Create() error: %v", err)
 	}
@@ -96,7 +106,6 @@ func TestCreate(t *testing.T) {
 func TestCreateAutoName(t *testing.T) {
 	mock := newMockExecutor()
 	mock.on("mkdir", "", nil)
-	mock.on("docker ps", "myapp-web-1", nil)
 	mock.on("docker ps -a", "myapp-web-1", nil)
 	mock.on("docker inspect", "/data ", nil)
 	mock.on("for f in", "", nil)
@@ -104,7 +113,7 @@ func TestCreateAutoName(t *testing.T) {
 	mock.on("stat --printf", "512", nil)
 
 	mgr := NewManager(mock)
-	snap, err := mgr.Create("server1", "myapp", "")
+	snap, err := mgr.Create(context.Background(), "server1", "myapp", "")
 	if err != nil {
 		t.Fatalf("Create() error: %v", err)
 	}
@@ -117,13 +126,12 @@ func TestCreateAutoName(t *testing.T) {
 func TestCreateNoFiles(t *testing.T) {
 	mock := newMockExecutor()
 	mock.on("mkdir", "", nil)
-	mock.on("docker ps", "", nil)
 	mock.on("docker ps -a", "", nil)
 	mock.on("docker inspect", "", nil)
 	mock.on("for f in", "", nil)
 
 	mgr := NewManager(mock)
-	_, err := mgr.Create("server1", "myapp", "backup1")
+	_, err := mgr.Create(context.Background(), "server1", "myapp", "backup1")
 	if err == nil {
 		t.Fatal("Create() should fail when no files to snapshot")
 	}
@@ -134,9 +142,18 @@ func TestCreateSSHError(t *testing.T) {
 	mock.on("mkdir", "", fmt.Errorf("connection refused"))
 
 	mgr := NewManager(mock)
-	_, err := mgr.Create("server1", "myapp", "backup1")
+	_, err := mgr.Create(context.Background(), "server1", "myapp", "backup1")
 	if err == nil {
 		t.Fatal("Create() should fail on SSH error")
+	}
+}
+
+func TestCreateInvalidWorkspace(t *testing.T) {
+	mock := newMockExecutor()
+	mgr := NewManager(mock)
+	_, err := mgr.Create(context.Background(), "server1", "my app; rm -rf /", "backup1")
+	if err == nil {
+		t.Fatal("Create() should reject invalid workspace name")
 	}
 }
 
@@ -148,7 +165,7 @@ func TestRestore(t *testing.T) {
 	mock.on("docker ps -aq", "", nil)
 
 	mgr := NewManager(mock)
-	err := mgr.Restore("server1", "myapp", "backup1")
+	err := mgr.Restore(context.Background(), "server1", "myapp", "backup1")
 	if err != nil {
 		t.Fatalf("Restore() error: %v", err)
 	}
@@ -172,7 +189,7 @@ func TestRestoreNotFound(t *testing.T) {
 	mock.on("test -f", "", fmt.Errorf("not found"))
 
 	mgr := NewManager(mock)
-	err := mgr.Restore("server1", "myapp", "nonexistent")
+	err := mgr.Restore(context.Background(), "server1", "myapp", "nonexistent")
 	if err == nil {
 		t.Fatal("Restore() should fail when snapshot not found")
 	}
@@ -189,7 +206,7 @@ func TestList(t *testing.T) {
 `, nil)
 
 	mgr := NewManager(mock)
-	snaps, err := mgr.List("server1", "myapp")
+	snaps, err := mgr.List(context.Background(), "server1", "myapp")
 	if err != nil {
 		t.Fatalf("List() error: %v", err)
 	}
@@ -214,7 +231,7 @@ func TestListNoDirectory(t *testing.T) {
 	mock.on("test -d", "", fmt.Errorf("not a directory"))
 
 	mgr := NewManager(mock)
-	snaps, err := mgr.List("server1", "myapp")
+	snaps, err := mgr.List(context.Background(), "server1", "myapp")
 	if err != nil {
 		t.Fatalf("List() error: %v", err)
 	}
@@ -229,36 +246,11 @@ func TestListEmpty(t *testing.T) {
 	mock.on("find", "", nil)
 
 	mgr := NewManager(mock)
-	snaps, err := mgr.List("server1", "myapp")
+	snaps, err := mgr.List(context.Background(), "server1", "myapp")
 	if err != nil {
 		t.Fatalf("List() error: %v", err)
 	}
 	if len(snaps) != 0 {
 		t.Errorf("List() returned %d snapshots, want 0", len(snaps))
-	}
-}
-
-func TestSplitLines(t *testing.T) {
-	tests := []struct {
-		input string
-		want  int
-	}{
-		{"", 0},
-		{"a\nb\nc\n", 3},
-		{"a\nb\nc", 3},
-		{"single", 1},
-	}
-	for _, tt := range tests {
-		got := splitLines(tt.input)
-		// Filter empty strings.
-		var nonEmpty []string
-		for _, s := range got {
-			if s != "" {
-				nonEmpty = append(nonEmpty, s)
-			}
-		}
-		if len(nonEmpty) != tt.want {
-			t.Errorf("splitLines(%q) = %d non-empty lines, want %d", tt.input, len(nonEmpty), tt.want)
-		}
 	}
 }

@@ -4,12 +4,24 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/junixlabs/devbox/internal/ssh"
 )
 
 const snapshotRoot = "/workspaces/.snapshots"
+
+// validName matches safe names for shell interpolation.
+var validName = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
+
+func validateName(value, label string) error {
+	if !validName.MatchString(value) {
+		return fmt.Errorf("invalid %s %q: must match [a-zA-Z0-9._-]+", label, value)
+	}
+	return nil
+}
 
 type sshManager struct {
 	exec ssh.Executor
@@ -20,44 +32,54 @@ func NewManager(exec ssh.Executor) Manager {
 	return &sshManager{exec: exec}
 }
 
-func (m *sshManager) Create(host, workspace, name string) (*Snapshot, error) {
+func (m *sshManager) Create(ctx context.Context, host, workspace, name string) (*Snapshot, error) {
+	if err := validateName(workspace, "workspace"); err != nil {
+		return nil, err
+	}
 	if name == "" {
 		name = fmt.Sprintf("%s-%s", workspace, time.Now().UTC().Format("20060102-150405"))
+	}
+	if err := validateName(name, "snapshot name"); err != nil {
+		return nil, err
 	}
 
 	dir := fmt.Sprintf("%s/%s", snapshotRoot, workspace)
 	archive := fmt.Sprintf("%s/%s.tar.gz", dir, name)
 
 	// Create snapshot directory.
-	if _, _, err := m.exec.Run(context.Background(), host, fmt.Sprintf("mkdir -p %s", dir)); err != nil {
+	if _, _, err := m.exec.Run(ctx, host, fmt.Sprintf("mkdir -p %s", dir)); err != nil {
 		return nil, fmt.Errorf("snapshot create: mkdir: %w", err)
 	}
 
-	// Discover Docker volume mount paths for the workspace.
+	// Discover Docker volume mount paths for ALL workspace containers.
 	// Container names follow the pattern: <workspace>-<service>-1
+	// Iterate all matching containers, collect unique mount source paths.
 	mountCmd := fmt.Sprintf(
-		`docker ps -a --filter "name=^%s-" --format '{{.Names}}' | head -1 | xargs -I{} docker inspect {} --format '{{range .Mounts}}{{.Source}} {{end}}'`,
+		`docker ps -a --filter "name=^%s-" --format '{{.Names}}' | xargs -I{} docker inspect {} --format '{{range .Mounts}}{{.Source}}\n{{end}}' | sort -u | grep -v '^$' | tr '\n' ' '`,
 		workspace,
 	)
-	mountOut, _, err := m.exec.Run(context.Background(), host, mountCmd)
+	mountOut, _, err := m.exec.Run(ctx, host, mountCmd)
 	if err != nil {
 		return nil, fmt.Errorf("snapshot create: discover mounts: %w", err)
 	}
 
 	// Build tar paths: volume mounts + workspace config files.
-	tarPaths := ""
-	if mountOut != "" {
-		tarPaths = mountOut
-	}
+	tarPaths := strings.TrimSpace(mountOut)
 	wsDir := fmt.Sprintf("/workspaces/%s", workspace)
 	// Add workspace config files if they exist.
 	configCmd := fmt.Sprintf(
 		`for f in %s/devbox.yaml %s/.env; do [ -f "$f" ] && printf '%%s ' "$f"; done`,
 		wsDir, wsDir,
 	)
-	configOut, _, _ := m.exec.Run(context.Background(), host, configCmd)
+	configOut, _, err := m.exec.Run(ctx, host, configCmd)
+	if err != nil {
+		return nil, fmt.Errorf("snapshot create: check config files: %w", err)
+	}
 	if configOut != "" {
-		tarPaths += " " + configOut
+		if tarPaths != "" {
+			tarPaths += " "
+		}
+		tarPaths += strings.TrimSpace(configOut)
 	}
 
 	if tarPaths == "" {
@@ -66,12 +88,12 @@ func (m *sshManager) Create(host, workspace, name string) (*Snapshot, error) {
 
 	// Create compressed archive.
 	tarCmd := fmt.Sprintf("tar czf %s -C / %s", archive, tarPaths)
-	if _, _, err := m.exec.Run(context.Background(), host, tarCmd); err != nil {
+	if _, _, err := m.exec.Run(ctx, host, tarCmd); err != nil {
 		return nil, fmt.Errorf("snapshot create: tar: %w", err)
 	}
 
 	// Get archive size.
-	sizeOut, _, err := m.exec.Run(context.Background(), host, fmt.Sprintf("stat --printf='%%s' %s", archive))
+	sizeOut, _, err := m.exec.Run(ctx, host, fmt.Sprintf("stat --printf='%%s' %s", archive))
 	if err != nil {
 		return nil, fmt.Errorf("snapshot create: stat: %w", err)
 	}
@@ -87,35 +109,46 @@ func (m *sshManager) Create(host, workspace, name string) (*Snapshot, error) {
 	}, nil
 }
 
-func (m *sshManager) Restore(host, workspace, name string) error {
+func (m *sshManager) Restore(ctx context.Context, host, workspace, name string) error {
+	if err := validateName(workspace, "workspace"); err != nil {
+		return err
+	}
+	if err := validateName(name, "snapshot name"); err != nil {
+		return err
+	}
+
 	archive := fmt.Sprintf("%s/%s/%s.tar.gz", snapshotRoot, workspace, name)
 
 	// Verify snapshot exists.
-	if _, _, err := m.exec.Run(context.Background(), host, fmt.Sprintf("test -f %s", archive)); err != nil {
+	if _, _, err := m.exec.Run(ctx, host, fmt.Sprintf("test -f %s", archive)); err != nil {
 		return fmt.Errorf("snapshot restore: snapshot %q not found for workspace %q", name, workspace)
 	}
 
 	// Stop workspace containers (best-effort).
 	stopCmd := fmt.Sprintf(`docker ps -q --filter "name=^%s-" | xargs -r docker stop`, workspace)
-	m.exec.Run(context.Background(), host, stopCmd) //nolint:errcheck // best-effort
+	m.exec.Run(ctx, host, stopCmd) //nolint:errcheck // best-effort
 
 	// Extract archive.
-	if _, _, err := m.exec.Run(context.Background(), host, fmt.Sprintf("tar xzf %s -C /", archive)); err != nil {
+	if _, _, err := m.exec.Run(ctx, host, fmt.Sprintf("tar xzf %s -C /", archive)); err != nil {
 		return fmt.Errorf("snapshot restore: tar extract: %w", err)
 	}
 
 	// Restart workspace containers (best-effort).
 	startCmd := fmt.Sprintf(`docker ps -aq --filter "name=^%s-" | xargs -r docker start`, workspace)
-	m.exec.Run(context.Background(), host, startCmd) //nolint:errcheck // best-effort
+	m.exec.Run(ctx, host, startCmd) //nolint:errcheck // best-effort
 
 	return nil
 }
 
-func (m *sshManager) List(host, workspace string) ([]Snapshot, error) {
+func (m *sshManager) List(ctx context.Context, host, workspace string) ([]Snapshot, error) {
+	if err := validateName(workspace, "workspace"); err != nil {
+		return nil, err
+	}
+
 	dir := fmt.Sprintf("%s/%s", snapshotRoot, workspace)
 
 	// Check if directory exists.
-	if _, _, err := m.exec.Run(context.Background(), host, fmt.Sprintf("test -d %s", dir)); err != nil {
+	if _, _, err := m.exec.Run(ctx, host, fmt.Sprintf("test -d %s", dir)); err != nil {
 		return nil, nil // No snapshots directory = empty list.
 	}
 
@@ -128,7 +161,7 @@ func (m *sshManager) List(host, workspace string) ([]Snapshot, error) {
 			`done`,
 		dir, dir, dir,
 	)
-	out, _, err := m.exec.Run(context.Background(), host, listCmd)
+	out, _, err := m.exec.Run(ctx, host, listCmd)
 	if err != nil {
 		return nil, fmt.Errorf("snapshot list: %w", err)
 	}
@@ -144,7 +177,7 @@ func (m *sshManager) List(host, workspace string) ([]Snapshot, error) {
 	}
 
 	var snapshots []Snapshot
-	for _, line := range splitLines(out) {
+	for _, line := range strings.Split(out, "\n") {
 		if line == "" {
 			continue
 		}
@@ -161,20 +194,4 @@ func (m *sshManager) List(host, workspace string) ([]Snapshot, error) {
 	}
 
 	return snapshots, nil
-}
-
-// splitLines splits a string into non-empty lines.
-func splitLines(s string) []string {
-	var lines []string
-	start := 0
-	for i := 0; i < len(s); i++ {
-		if s[i] == '\n' {
-			lines = append(lines, s[start:i])
-			start = i + 1
-		}
-	}
-	if start < len(s) {
-		lines = append(lines, s[start:])
-	}
-	return lines
 }
