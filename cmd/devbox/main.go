@@ -13,8 +13,8 @@ import (
 
 	"github.com/junixlabs/devbox/internal/config"
 	"github.com/junixlabs/devbox/internal/doctor"
-	"github.com/junixlabs/devbox/internal/identity"
 	devboxerr "github.com/junixlabs/devbox/internal/errors"
+	"github.com/junixlabs/devbox/internal/identity"
 	devboxssh "github.com/junixlabs/devbox/internal/ssh"
 	"github.com/junixlabs/devbox/internal/tailscale"
 	"github.com/junixlabs/devbox/internal/ui"
