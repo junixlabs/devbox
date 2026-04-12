@@ -43,6 +43,7 @@ func NewListModel(mgr workspace.Manager, keys KeyMap) ListModel {
 // workspacesLoadedMsg carries refreshed workspace data.
 type workspacesLoadedMsg struct {
 	workspaces []workspace.Workspace
+	err        error
 }
 
 // workspaceActionDoneMsg signals that an async action completed.
@@ -70,6 +71,10 @@ func (m ListModel) Update(msg tea.Msg) (ListModel, tea.Cmd) {
 	switch msg := msg.(type) {
 
 	case workspacesLoadedMsg:
+		if msg.err != nil {
+			m.err = msg.err
+			return m, nil
+		}
 		m.workspaces = msg.workspaces
 		m.applyFilter()
 		m.err = nil
@@ -267,7 +272,7 @@ func (m ListModel) refreshWorkspaces() tea.Cmd {
 		}
 		wsList, err := m.manager.List(workspace.ListOptions{All: true})
 		if err != nil {
-			return workspacesLoadedMsg{}
+			return workspacesLoadedMsg{err: err}
 		}
 		return workspacesLoadedMsg{workspaces: wsList}
 	}

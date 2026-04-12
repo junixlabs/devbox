@@ -38,12 +38,27 @@ type logDoneMsg struct{}
 type backToListMsg struct{}
 
 // NewLogModel creates a log viewer for a specific workspace.
+// Channel and cancel func are set up here (not in Init) so they survive
+// bubbletea's value-receiver copy semantics in Init()/Update().
 func NewLogModel(ws workspace.Workspace, exec ssh.Executor, keys KeyMap) LogModel {
-	return LogModel{
+	ctx, cancel := context.WithCancel(context.Background())
+	ch := make(chan string, 64)
+
+	m := LogModel{
 		workspace: ws,
 		executor:  exec,
 		keys:      keys,
+		cancel:    cancel,
+		lines:     ch,
 	}
+
+	if exec != nil {
+		go m.streamToChannel(ctx, ch)
+	} else {
+		close(ch)
+	}
+
+	return m
 }
 
 func (m LogModel) Init() tea.Cmd {
@@ -52,7 +67,7 @@ func (m LogModel) Init() tea.Cmd {
 			return logLineMsg(errStyle.Render("[error] SSH not available — logs require SSH connectivity"))
 		}
 	}
-	return m.startStreaming()
+	return m.waitForLine()
 }
 
 func (m LogModel) Update(msg tea.Msg) (LogModel, tea.Cmd) {
@@ -142,39 +157,29 @@ func (m *LogModel) SetSize(w, h int) {
 	}
 }
 
-func (m *LogModel) startStreaming() tea.Cmd {
-	ctx, cancel := context.WithCancel(context.Background())
-	m.cancel = cancel
+// streamToChannel runs in a goroutine, streaming docker compose logs into ch.
+func (m LogModel) streamToChannel(ctx context.Context, ch chan<- string) {
+	defer close(ch)
 
-	ch := make(chan string, 64)
-	m.lines = ch
-
-	// Use docker compose logs with the project compose file path.
 	composePath := docker.WorkspaceBaseDir + "/" + m.workspace.Name + "/docker-compose.yml"
-	cmd := fmt.Sprintf("docker compose -f %s logs --tail 100 -f 2>&1", composePath)
+	cmd := fmt.Sprintf("docker compose -f '%s' logs --tail 100 -f 2>&1", composePath)
+
+	pr, pw := io.Pipe()
+	defer pr.Close()
 
 	go func() {
-		defer close(ch)
-
-		pr, pw := io.Pipe()
-
-		go func() {
-			defer pw.Close()
-			_ = m.executor.RunStream(ctx, m.workspace.ServerHost, cmd, pw, pw)
-		}()
-
-		scanner := bufio.NewScanner(pr)
-		for scanner.Scan() {
-			select {
-			case ch <- scanner.Text():
-			case <-ctx.Done():
-				pr.Close()
-				return
-			}
-		}
+		defer pw.Close()
+		_ = m.executor.RunStream(ctx, m.workspace.ServerHost, cmd, pw, pw)
 	}()
 
-	return m.waitForLine()
+	scanner := bufio.NewScanner(pr)
+	for scanner.Scan() {
+		select {
+		case ch <- scanner.Text():
+		case <-ctx.Done():
+			return
+		}
+	}
 }
 
 func (m LogModel) waitForLine() tea.Cmd {

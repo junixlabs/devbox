@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -252,7 +253,7 @@ func TestListViewNilManager(t *testing.T) {
 	}
 	// Should contain the "not configured" message.
 	expected := "No workspace manager configured"
-	if !containsStr(view, expected) {
+	if !strings.Contains(view, expected) {
 		t.Errorf("view should contain %q, got:\n%s", expected, view)
 	}
 }
@@ -269,7 +270,7 @@ func TestRenderStatus(t *testing.T) {
 	}
 	for _, tt := range tests {
 		got := renderStatus(tt.status)
-		if !containsStr(got, tt.want) {
+		if !strings.Contains(got, tt.want) {
 			t.Errorf("renderStatus(%s) = %q, should contain %q", tt.status, got, tt.want)
 		}
 	}
@@ -287,15 +288,3 @@ func TestWindowResize(t *testing.T) {
 	}
 }
 
-func containsStr(s, sub string) bool {
-	return len(s) >= len(sub) && (s == sub || len(s) > 0 && containsSubstr(s, sub))
-}
-
-func containsSubstr(s, sub string) bool {
-	for i := 0; i+len(sub) <= len(s); i++ {
-		if s[i:i+len(sub)] == sub {
-			return true
-		}
-	}
-	return false
-}
