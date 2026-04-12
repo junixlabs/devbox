@@ -19,6 +19,7 @@ import (
 	"github.com/junixlabs/devbox/internal/server"
 	devboxssh "github.com/junixlabs/devbox/internal/ssh"
 	"github.com/junixlabs/devbox/internal/tailscale"
+	"github.com/junixlabs/devbox/internal/tui"
 	"github.com/junixlabs/devbox/internal/ui"
 	"github.com/junixlabs/devbox/internal/workspace"
 	"github.com/spf13/cobra"
@@ -51,6 +52,10 @@ func main() {
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Enable debug logging")
 	rootCmd.PersistentFlags().BoolVar(&noColor, "no-color", false, "Disable colored output")
 
+	rootCmd.RunE = func(cmd *cobra.Command, args []string) error {
+		return runTUI(wm)
+	}
+
 	rootCmd.AddCommand(initCmd())
 	rootCmd.AddCommand(upCmd(wm))
 	rootCmd.AddCommand(stopCmd(wm))
@@ -59,6 +64,7 @@ func main() {
 	rootCmd.AddCommand(sshCmd(wm))
 	rootCmd.AddCommand(doctorCmd())
 	rootCmd.AddCommand(serverCmd())
+	rootCmd.AddCommand(tuiCmd(wm))
 
 	if err := rootCmd.Execute(); err != nil {
 		printError(err)
@@ -841,4 +847,24 @@ func checkMark(ok bool) string {
 		return "ok"
 	}
 	return "fail"
+}
+
+func tuiCmd(wm workspace.Manager) *cobra.Command {
+	return &cobra.Command{
+		Use:   "tui",
+		Short: "Open interactive dashboard",
+		Long:  "Open the interactive TUI dashboard for managing workspaces.\nNavigate with keyboard shortcuts — no commands to remember.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runTUI(wm)
+		},
+	}
+}
+
+func runTUI(wm workspace.Manager) error {
+	var sshExec devboxssh.Executor
+	if exec, err := devboxssh.New(); err == nil {
+		sshExec = exec
+		defer exec.Close()
+	}
+	return tui.Run(wm, sshExec)
 }
