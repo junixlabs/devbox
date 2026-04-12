@@ -16,6 +16,7 @@ import (
 	"github.com/junixlabs/devbox/internal/doctor"
 	devboxerr "github.com/junixlabs/devbox/internal/errors"
 	"github.com/junixlabs/devbox/internal/identity"
+	"github.com/junixlabs/devbox/internal/metrics"
 	"github.com/junixlabs/devbox/internal/server"
 	"github.com/junixlabs/devbox/internal/snapshot"
 	devboxssh "github.com/junixlabs/devbox/internal/ssh"
@@ -65,6 +66,7 @@ func main() {
 	rootCmd.AddCommand(destroyCmd(wm))
 	rootCmd.AddCommand(sshCmd(wm))
 	rootCmd.AddCommand(doctorCmd())
+	rootCmd.AddCommand(statsCmd())
 	rootCmd.AddCommand(serverCmd())
 	rootCmd.AddCommand(templateCmd())
 	rootCmd.AddCommand(tuiCmd(wm))
@@ -679,6 +681,125 @@ func timeAgo(t time.Time) string {
 		return fmt.Sprintf("%dh ago", int(d.Hours()))
 	default:
 		return fmt.Sprintf("%dd ago", int(d.Hours()/24))
+	}
+}
+
+func statsCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:     "stats [workspace]",
+		Aliases: []string{"metrics"},
+		Short:   "Show resource usage for workspaces",
+		Long:    "Display CPU, memory, disk, and network I/O metrics for workspaces.\nIf a workspace name is given, shows metrics for that workspace only.\nOtherwise shows all workspaces on the server plus a server summary.",
+		Args:    cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			serverFlag, _ := cmd.Flags().GetString("server")
+
+			if serverFlag == "" {
+				cfg, err := config.LoadFromDir(".")
+				if err == nil {
+					serverFlag = cfg.Server
+				}
+			}
+
+			// Resolve server name from pool.
+			if serverFlag != "" {
+				configPath, _ := server.DefaultConfigPath()
+				if pool, err := server.NewFilePool(configPath, nil); err == nil {
+					if servers, err := pool.List(); err == nil {
+						for _, srv := range servers {
+							if srv.Name == serverFlag {
+								serverFlag = server.SSHHost(&srv)
+								break
+							}
+						}
+					}
+				}
+			}
+
+			if serverFlag == "" {
+				return fmt.Errorf("devbox stats: no server specified — use --server flag or create devbox.yaml")
+			}
+
+			sshExec, err := devboxssh.New()
+			if err != nil {
+				return fmt.Errorf("devbox stats: %w", err)
+			}
+			defer sshExec.Close()
+
+			collector := metrics.NewCollector(sshExec)
+			ctx := cmd.Context()
+
+			if len(args) == 1 {
+				// Single workspace mode.
+				container := args[0]
+				wm, err := collector.CollectWorkspace(ctx, serverFlag, container)
+				if err != nil {
+					return fmt.Errorf("devbox stats: %w", err)
+				}
+				if wm.Stopped {
+					fmt.Printf("Workspace %q is stopped\n", container)
+					return nil
+				}
+				printWorkspaceMetrics(wm)
+				return nil
+			}
+
+			// Server overview mode.
+			sm, err := collector.CollectServer(ctx, serverFlag)
+			if err != nil {
+				return fmt.Errorf("devbox stats: %w", err)
+			}
+
+			if len(sm.Workspaces) == 0 {
+				fmt.Println("No running containers found")
+			} else {
+				w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+				fmt.Fprintln(w, "WORKSPACE\tCPU\tMEMORY\tNET I/O\tDISK")
+				for _, wm := range sm.Workspaces {
+					fmt.Fprintf(w, "%s\t%.1f%%\t%s / %s\t%s / %s\t-\n",
+						wm.Container,
+						wm.CPUPercent,
+						formatBytesShort(wm.MemUsage), formatBytesShort(wm.MemLimit),
+						formatBytesShort(wm.NetIn), formatBytesShort(wm.NetOut),
+					)
+				}
+				w.Flush()
+			}
+
+			fmt.Printf("\nServer: CPU %d cores, RAM %s / %s, Disk %s / %s\n",
+				sm.TotalCPUs,
+				formatBytesShort(sm.UsedMem), formatBytesShort(sm.TotalMem),
+				formatBytesShort(sm.UsedDisk), formatBytesShort(sm.TotalDisk),
+			)
+
+			return nil
+		},
+	}
+	cmd.Flags().String("server", "", "Target server name or hostname")
+	return cmd
+}
+
+func printWorkspaceMetrics(wm *metrics.WorkspaceMetrics) {
+	fmt.Printf("Workspace: %s\n", wm.Container)
+	fmt.Printf("  CPU:     %.1f%%\n", wm.CPUPercent)
+	fmt.Printf("  Memory:  %s / %s\n", formatBytesShort(wm.MemUsage), formatBytesShort(wm.MemLimit))
+	fmt.Printf("  Net I/O: %s in / %s out\n", formatBytesShort(wm.NetIn), formatBytesShort(wm.NetOut))
+	if wm.DiskTotal > 0 {
+		pct := float64(wm.DiskUsage) / float64(wm.DiskTotal) * 100
+		fmt.Printf("  Disk:    %s / %s (%.0f%%)\n", formatBytesShort(wm.DiskUsage), formatBytesShort(wm.DiskTotal), pct)
+	}
+}
+
+func formatBytesShort(b uint64) string {
+	switch {
+	case b >= 1024*1024*1024:
+		return fmt.Sprintf("%.1fGi", float64(b)/(1024*1024*1024))
+	case b >= 1024*1024:
+		return fmt.Sprintf("%.0fMi", float64(b)/(1024*1024))
+	case b >= 1024:
+		return fmt.Sprintf("%.0fKi", float64(b)/1024)
+	default:
+		return fmt.Sprintf("%dB", b)
 	}
 }
 
