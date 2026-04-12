@@ -13,13 +13,17 @@ Go CLI tool that turns any Linux machine into a ready-to-use dev environment in 
 - `internal/template/` — Workspace templates system (built-in + user-defined, YAML-based)
 - `internal/snapshot/` — Snapshot & restore workspace state (Docker volumes, compressed tar archives)
 - `internal/metrics/` — Resource metrics collector (CPU, memory, disk, network I/O per workspace/server)
+- `internal/plugin/` — Plugin system with Provider/Hook interfaces, registry, external plugin discovery
+- `internal/plugin/docker/` — Built-in Docker provider plugin
+- `internal/registry/` — Community template registry (search/pull/push to remote registries)
+- `internal/ci/` — CI/CD integration (GitHub Actions PR preview workspaces)
 - `internal/integration/` — Multi-user integration tests (build tag: integration)
 - `internal/testutil/` — Shared test helpers for SSH, Docker, assertions
 - `.claude/specs/` — Product vision and design documents
 
 ## Key Patterns
 - **Cobra CLI**: All commands defined as funcs returning `*cobra.Command`, wired in `main()`
-- **Interface-driven**: `workspace.Manager`, `tailscale.Manager`, `identity.Resolver`, `port.Registry`, `server.Pool`, `metrics.Collector`, `snapshot.Manager` define contracts
+- **Interface-driven**: `workspace.Manager`, `tailscale.Manager`, `identity.Resolver`, `port.Registry`, `server.Pool`, `metrics.Collector`, `snapshot.Manager`, `plugin.Provider`, `plugin.Hook` define contracts
 - **Config**: Per-project `devbox.yaml` parsed into `DevboxConfig` struct with yaml tags; `name` and `server` are required fields
 - **Error wrapping**: `fmt.Errorf("context: %w", err)` for all error propagation
 - **Single binary**: No runtime dependencies, cross-compile with `GOOS`/`GOARCH`
@@ -39,6 +43,9 @@ go vet ./...                        # Lint
 ./devbox server add|remove|list     # Server pool management
 ./devbox tui                        # Interactive TUI dashboard
 ./devbox template list|create       # Workspace templates
+./devbox template search|pull|push  # Community template registry
 ./devbox snapshot|restore           # Snapshot & restore workspace state
 ./devbox stats [workspace]          # Resource metrics
+./devbox plugin list|install|remove # Plugin management
+./devbox ci preview-up|preview-down # CI/CD PR preview workspaces
 ```
