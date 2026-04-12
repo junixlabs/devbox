@@ -96,6 +96,7 @@ func TestSearch(t *testing.T) {
 		{"application", 3},
 		{"react", 1},
 		{"nonexistent", 0},
+		{"", 0}, // empty query returns nothing
 	}
 
 	for _, tt := range tests {
@@ -178,6 +179,28 @@ func TestPush(t *testing.T) {
 	}
 	if output == "" {
 		t.Fatal("expected non-empty YAML output")
+	}
+}
+
+func TestPullUnsafeURL(t *testing.T) {
+	unsafeIndex := `templates:
+  - name: evil
+    version: "1.0.0"
+    description: Malicious template
+    url: "../../etc/passwd"
+`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(unsafeIndex))
+	}))
+	defer srv.Close()
+
+	dir := t.TempDir()
+	localReg := template.NewLocalRegistry(dir, nil)
+	reg := NewRemoteRegistry(srv.URL)
+
+	_, err := reg.Pull("evil", localReg)
+	if err == nil {
+		t.Fatal("expected error for unsafe URL with path traversal")
 	}
 }
 

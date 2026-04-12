@@ -92,6 +92,7 @@ func TestMatchesQuery(t *testing.T) {
 		{"mysql", true},
 		{"nonexistent", false},
 		{"lara", true},
+		{"", false},
 	}
 
 	for _, tt := range tests {

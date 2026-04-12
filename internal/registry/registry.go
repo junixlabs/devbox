@@ -83,6 +83,10 @@ func (r *RemoteRegistry) Search(query string) ([]IndexEntry, error) {
 		return nil, err
 	}
 
+	if query == "" {
+		return nil, nil
+	}
+
 	q := strings.ToLower(query)
 	var matches []IndexEntry
 	for _, e := range entries {
@@ -113,10 +117,12 @@ func (r *RemoteRegistry) Pull(name string, localReg *template.LocalRegistry) (*t
 		return nil, fmt.Errorf("template %q not found in registry", name)
 	}
 
-	// Only allow relative URLs to prevent SSRF via malicious index entries.
+	// Only allow safe relative URLs to prevent SSRF via malicious index entries.
 	templateURL := entry.URL
-	if strings.HasPrefix(templateURL, "http://") || strings.HasPrefix(templateURL, "https://") {
-		return nil, fmt.Errorf("template %q has absolute URL which is not allowed", name)
+	if strings.HasPrefix(templateURL, "http://") || strings.HasPrefix(templateURL, "https://") ||
+		strings.HasPrefix(templateURL, "//") || strings.Contains(templateURL, "..") ||
+		strings.Contains(templateURL, ":") {
+		return nil, fmt.Errorf("template %q has unsafe URL %q", name, templateURL)
 	}
 	templateURL = r.baseURL + "/" + strings.TrimLeft(templateURL, "/")
 

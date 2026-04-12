@@ -27,8 +27,11 @@ type Template struct {
 }
 
 // MatchesQuery returns true if the template's name or description
-// contains the query string (case-insensitive).
+// contains the query string (case-insensitive). Returns false for empty queries.
 func (t *Template) MatchesQuery(query string) bool {
+	if query == "" {
+		return false
+	}
 	q := strings.ToLower(query)
 	return strings.Contains(strings.ToLower(t.Name), q) ||
 		strings.Contains(strings.ToLower(t.Description), q)
