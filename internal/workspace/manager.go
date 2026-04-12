@@ -300,6 +300,40 @@ func (m *remoteManager) SSH(name string) error {
 	return nil
 }
 
+func (m *remoteManager) DockerStats(host string) (map[string]*ResourceUsage, error) {
+	sshExec, err := newSSH()
+	if err != nil {
+		return nil, err
+	}
+	defer sshExec.Close()
+
+	cmd := `docker stats --no-stream --format "{{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}"`
+	stdout, _, err := sshExec.Run(context.Background(), host, cmd)
+	if err != nil {
+		return nil, fmt.Errorf("running docker stats on %s: %w", host, err)
+	}
+	return ParseDockerStats(stdout)
+}
+
+func (m *remoteManager) ServerResources(host string) (*ServerResourceInfo, error) {
+	sshExec, err := newSSH()
+	if err != nil {
+		return nil, err
+	}
+	defer sshExec.Close()
+
+	ctx := context.Background()
+	cpuOut, _, err := sshExec.Run(ctx, host, "nproc")
+	if err != nil {
+		return nil, fmt.Errorf("running nproc on %s: %w", host, err)
+	}
+	memOut, _, err := sshExec.Run(ctx, host, "cat /proc/meminfo")
+	if err != nil {
+		return nil, fmt.Errorf("reading /proc/meminfo on %s: %w", host, err)
+	}
+	return ParseServerResources(cpuOut, memOut)
+}
+
 // mustGet returns a workspace by name, or a WorkspaceError if not found.
 func (m *remoteManager) mustGet(name string) (*Workspace, error) {
 	ws, err := m.state.Get(name)

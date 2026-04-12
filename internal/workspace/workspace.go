@@ -68,6 +68,12 @@ type Manager interface {
 
 	// SSH opens an interactive SSH session into a workspace.
 	SSH(name string) error
+
+	// DockerStats returns live resource usage for all containers on a host.
+	DockerStats(host string) (map[string]*ResourceUsage, error)
+
+	// ServerResources returns total CPU and memory for a host.
+	ServerResources(host string) (*ServerResourceInfo, error)
 }
 
 // WorkspaceError represents a workspace-related error with a suggestion.
