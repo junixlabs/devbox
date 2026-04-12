@@ -4,7 +4,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	devboxerr "github.com/junixlabs/devbox/internal/errors"
@@ -327,10 +326,10 @@ func TestLoadFromDir_NeitherExists(t *testing.T) {
 	}
 }
 
-func TestLoadFromDir_MalformedDevboxYaml_NoFallback(t *testing.T) {
+func TestLoadFromDir_DevboxYamlWithoutServer_NoFallback(t *testing.T) {
 	dir := t.TempDir()
 
-	// Create a malformed devbox.yaml (missing server).
+	// Create devbox.yaml without server (now valid — server is optional).
 	os.WriteFile(
 		filepath.Join(dir, "devbox.yaml"),
 		[]byte("name: broken-project\n"),
@@ -346,18 +345,13 @@ func TestLoadFromDir_MalformedDevboxYaml_NoFallback(t *testing.T) {
 		0644,
 	)
 
-	_, err := LoadFromDir(dir)
-	if err == nil {
-		t.Fatal("expected error for malformed devbox.yaml, should not fall back to devcontainer.json")
+	// LoadFromDir should use devbox.yaml (not fall back to devcontainer.json).
+	cfg, err := LoadFromDir(dir)
+	if err != nil {
+		t.Fatalf("LoadFromDir() unexpected error: %v", err)
 	}
-
-	// Should report the devbox.yaml error, not silently fall back.
-	var ce *devboxerr.ConfigError
-	if !errors.As(err, &ce) {
-		t.Fatalf("expected ConfigError, got %T", err)
-	}
-	if !strings.Contains(err.Error(), "'server' is required") {
-		t.Errorf("error = %q, want it to mention server is required", err.Error())
+	if cfg.Name != "broken-project" {
+		t.Errorf("Name = %q, want %q (from devbox.yaml, not devcontainer)", cfg.Name, "broken-project")
 	}
 }
 

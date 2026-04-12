@@ -120,17 +120,25 @@ func TestLoad_MissingServer(t *testing.T) {
 
 	os.WriteFile(path, []byte("name: myproject\n"), 0644)
 
-	_, err := Load(path)
-	if err == nil {
-		t.Fatal("expected error for missing server")
+	// Load should succeed — server is now optional (validated at use time).
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() unexpected error: %v", err)
 	}
-	if !strings.Contains(err.Error(), "'server' is required") {
-		t.Errorf("error = %q, want it to contain 'server' is required", err.Error())
+	if cfg.Server != "" {
+		t.Errorf("Server = %q, want empty", cfg.Server)
 	}
 
-	var ce *devboxerr.ConfigError
-	if !errors.As(err, &ce) {
-		t.Fatalf("expected ConfigError, got %T", err)
+	// ValidateForUp without pool should error.
+	err = cfg.ValidateForUp(false)
+	if err == nil {
+		t.Fatal("ValidateForUp(false) should error when server is empty")
+	}
+
+	// ValidateForUp with pool should succeed.
+	err = cfg.ValidateForUp(true)
+	if err != nil {
+		t.Fatalf("ValidateForUp(true) unexpected error: %v", err)
 	}
 }
 

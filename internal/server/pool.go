@@ -142,7 +142,7 @@ func (p *filePool) checkServer(srv *Server) *HealthStatus {
 		return status
 	}
 
-	host := sshHost(srv)
+	host := SSHHost(srv)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 

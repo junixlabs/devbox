@@ -46,3 +46,9 @@ func WithUser(user string) AddOption {
 func WithPort(port int) AddOption {
 	return func(s *Server) { s.Port = port }
 }
+
+// SSHHost returns the SSH-compatible host string for connecting to a server.
+func SSHHost(s *Server) string {
+	return sshHost(s)
+}
+

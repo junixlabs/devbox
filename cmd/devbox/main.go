@@ -120,17 +120,61 @@ func upCmd(wm workspace.Manager) *cobra.Command {
 				return fmt.Errorf("devbox up: %w", err)
 			}
 
-			// Apply flag overrides
-			if s, _ := cmd.Flags().GetString("server"); s != "" {
-				cfg.Server = s
-			}
 			if b, _ := cmd.Flags().GetString("branch"); b != "" {
 				cfg.Branch = b
 			}
 
-			if cfg.Server == "" {
-				return fmt.Errorf("devbox up: server is required — add 'server:' to devbox.yaml or use --server flag")
+			// Load server pool (best-effort).
+			configPath, _ := server.DefaultConfigPath()
+			sshExec, err := devboxssh.New()
+			if err != nil {
+				return fmt.Errorf("devbox up: %w", err)
 			}
+			defer sshExec.Close()
+
+			pool, poolErr := server.NewFilePool(configPath, sshExec)
+			var poolServers []server.Server
+			if poolErr == nil {
+				poolServers, _ = pool.List()
+			}
+			poolConfigured := len(poolServers) > 0
+
+			// 3-tier server resolution: --server flag → config.Server → auto-select from pool.
+			targetServer := cfg.Server
+			serverFlag, _ := cmd.Flags().GetString("server")
+
+			if serverFlag != "" {
+				// Tier 1: --server flag — look up from pool by name.
+				found := false
+				for _, srv := range poolServers {
+					if srv.Name == serverFlag {
+						targetServer = server.SSHHost(&srv)
+						found = true
+						break
+					}
+				}
+				if !found {
+					// Not in pool — use as raw hostname (backward compat).
+					targetServer = serverFlag
+				}
+			} else if targetServer == "" && poolConfigured {
+				// Tier 3: Auto-select from pool.
+				selector := server.NewLeastLoaded(sshExec)
+				selected, err := selector.Select(cmd.Context(), poolServers)
+				if err != nil {
+					return fmt.Errorf("devbox up: %w", err)
+				}
+				targetServer = server.SSHHost(selected)
+				fmt.Fprintf(os.Stderr, "Using server: %s (%s)\n", selected.Name, selected.Host)
+			}
+			// Tier 2: config.Server is already set in targetServer.
+
+			if err := cfg.ValidateForUp(poolConfigured); err != nil {
+				if targetServer == "" {
+					return fmt.Errorf("devbox up: %w", err)
+				}
+			}
+			cfg.Server = targetServer
 
 			// Merge resource limits: server defaults <- workspace overrides.
 			globalCfg, err := config.LoadGlobal()
@@ -173,13 +217,6 @@ func upCmd(wm workspace.Manager) *cobra.Command {
 			}
 
 			// Expose ports via Tailscale on the remote server
-			sshExec, err := devboxssh.New()
-			if err != nil {
-				ui.StopSpinner(spin, false)
-				return fmt.Errorf("devbox up: %w", err)
-			}
-			defer sshExec.Close()
-
 			tm := tailscale.NewManager(remoteRunner(sshExec, cfg.Server))
 			for name, port := range cfg.Ports {
 				if err := tm.Serve(port, ws.Name); err != nil {
@@ -199,7 +236,7 @@ func upCmd(wm workspace.Manager) *cobra.Command {
 		},
 	}
 	cmd.Flags().String("branch", "", "Git branch to checkout")
-	cmd.Flags().String("server", "", "Target server (overrides devbox.yaml)")
+	cmd.Flags().String("server", "", "Target server name from pool (or hostname)")
 	return cmd
 }
 
@@ -233,15 +270,40 @@ func stopCmd(wm workspace.Manager) *cobra.Command {
 }
 
 func listCmd(wm workspace.Manager) *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:     "list",
 		Aliases: []string{"ls"},
 		Short:   "List all workspaces",
-		Long:    "List all workspaces across all configured servers.\nShows status, resource limits, and server for each workspace.",
+		Long:    "List all workspaces across all configured servers.\nShows status, resource limits, and server for each workspace.\nUse --server to filter to a specific server.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			workspaces, err := wm.List()
 			if err != nil {
 				return fmt.Errorf("devbox list: %w", err)
+			}
+
+			// Filter by --server if provided.
+			serverFilter, _ := cmd.Flags().GetString("server")
+			if serverFilter != "" {
+				// Resolve server name from pool if possible.
+				resolvedHost := serverFilter
+				configPath, _ := server.DefaultConfigPath()
+				if pool, err := server.NewFilePool(configPath, nil); err == nil {
+					if servers, err := pool.List(); err == nil {
+						for _, srv := range servers {
+							if srv.Name == serverFilter {
+								resolvedHost = server.SSHHost(&srv)
+								break
+							}
+						}
+					}
+				}
+				filtered := make([]workspace.Workspace, 0)
+				for _, ws := range workspaces {
+					if ws.ServerHost == resolvedHost || ws.ServerHost == serverFilter {
+						filtered = append(filtered, ws)
+					}
+				}
+				workspaces = filtered
 			}
 
 			if len(workspaces) == 0 {
@@ -331,6 +393,8 @@ func listCmd(wm workspace.Manager) *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().String("server", "", "Filter workspaces by server name or hostname")
+	return cmd
 }
 
 func destroyCmd(wm workspace.Manager) *cobra.Command {

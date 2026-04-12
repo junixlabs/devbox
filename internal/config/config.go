@@ -120,14 +120,6 @@ func Load(path string) (*DevboxConfig, error) {
 		)
 	}
 
-	if cfg.Server == "" {
-		return nil, devboxerr.NewConfigError(
-			fmt.Sprintf("config file %s: 'server' is required", path),
-			"Add 'server: your-server' to devbox.yaml",
-			nil,
-		)
-	}
-
 	if cfg.Resources != nil {
 		if err := cfg.Resources.Validate(); err != nil {
 			return nil, devboxerr.NewConfigError(
@@ -139,6 +131,19 @@ func Load(path string) (*DevboxConfig, error) {
 	}
 
 	return &cfg, nil
+}
+
+// ValidateForUp checks that the config has enough info to create a workspace.
+// If poolConfigured is true, the server field is optional (auto-select from pool).
+func (c *DevboxConfig) ValidateForUp(poolConfigured bool) error {
+	if c.Server == "" && !poolConfigured {
+		return devboxerr.NewConfigError(
+			"'server' is required when no server pool is configured",
+			"Add 'server: your-server' to devbox.yaml, use --server flag, or run 'devbox server add'",
+			nil,
+		)
+	}
+	return nil
 }
 
 // ServerDefaults holds per-server default settings.
