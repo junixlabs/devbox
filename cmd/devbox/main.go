@@ -169,12 +169,10 @@ func upCmd(wm workspace.Manager) *cobra.Command {
 			}
 			// Tier 2: config.Server is already set in targetServer.
 
-			if err := cfg.ValidateForUp(poolConfigured); err != nil {
-				if targetServer == "" {
-					return fmt.Errorf("devbox up: %w", err)
-				}
-			}
 			cfg.Server = targetServer
+			if err := cfg.ValidateForUp(poolConfigured); err != nil {
+				return fmt.Errorf("devbox up: %w", err)
+			}
 
 			// Merge resource limits: server defaults <- workspace overrides.
 			globalCfg, err := config.LoadGlobal()
