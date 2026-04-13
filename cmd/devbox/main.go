@@ -18,6 +18,7 @@ import (
 	"github.com/junixlabs/devbox/internal/doctor"
 	devboxerr "github.com/junixlabs/devbox/internal/errors"
 	"github.com/junixlabs/devbox/internal/identity"
+	devboxmcp "github.com/junixlabs/devbox/internal/mcp"
 	"github.com/junixlabs/devbox/internal/metrics"
 	"github.com/junixlabs/devbox/internal/plugin"
 	"github.com/junixlabs/devbox/internal/plugin/docker"
@@ -1725,5 +1726,50 @@ func ciPreviewDownCmd(wm workspace.Manager) *cobra.Command {
 	cmd.Flags().String("repo", "", "Repository in owner/repo format (required)")
 	cmd.MarkFlagRequired("pr")
 	cmd.MarkFlagRequired("repo")
+	return cmd
+}
+
+func mcpCmd(wm workspace.Manager) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "mcp",
+		Short: "MCP server for AI agent integration",
+		Long:  "Expose devbox functionality as MCP (Model Context Protocol) tools\nfor AI agents to manage workspaces, servers, and metrics.",
+	}
+
+	serveCmd := &cobra.Command{
+		Use:   "serve",
+		Short: "Start MCP server over stdio",
+		Long:  "Start an MCP server that communicates over stdin/stdout.\nAI agents can connect to manage workspaces and query server resources.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			sshExec, err := devboxssh.New()
+			if err != nil {
+				return fmt.Errorf("devbox mcp serve: %w", err)
+			}
+			defer sshExec.Close()
+
+			configPath, err := server.DefaultConfigPath()
+			if err != nil {
+				return fmt.Errorf("devbox mcp serve: %w", err)
+			}
+
+			pool, err := server.NewFilePool(configPath, sshExec)
+			if err != nil {
+				return fmt.Errorf("devbox mcp serve: %w", err)
+			}
+
+			collector := metrics.NewCollector(sshExec)
+
+			deps := devboxmcp.Deps{
+				Manager:   wm,
+				Pool:      pool,
+				Collector: collector,
+				SSHExec:   sshExec,
+			}
+
+			return devboxmcp.Serve(deps, version)
+		},
+	}
+
+	cmd.AddCommand(serveCmd)
 	return cmd
 }

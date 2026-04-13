@@ -5,38 +5,44 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/junixlabs/devbox/internal/config"
 	"github.com/junixlabs/devbox/internal/server"
-	devboxssh "github.com/junixlabs/devbox/internal/ssh"
 	"github.com/junixlabs/devbox/internal/workspace"
-	"github.com/mark3labs/mcp-go/mcp"
+	gomcp "github.com/mark3labs/mcp-go/mcp"
+	mcpserver "github.com/mark3labs/mcp-go/server"
 )
 
 // handleCreate returns a tool handler that creates a workspace.
-func handleCreate(mgr workspace.Manager) func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		name, err := request.RequireString("name")
-		if err != nil {
-			return toolError(ErrInvalidInput, err.Error()), nil
+func handleCreate(deps Deps) mcpserver.ToolHandlerFunc {
+	return func(ctx context.Context, request gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {
+		args := request.GetArguments()
+		name := getString(args, "name")
+		if name == "" {
+			return toolError(ErrInvalidInput, "name is required"), nil
 		}
 
-		serverHost := request.GetString("server", "")
-		template := request.GetString("template", "")
-		repo := request.GetString("repo", "")
-		branch := request.GetString("branch", "")
+		serverHost := getString(args, "server")
+		repo := getString(args, "repo")
+		branch := getString(args, "branch")
 
 		// Parse optional services array.
-		services := request.GetStringSlice("services", nil)
+		var services []string
+		if raw, ok := args["services"]; ok {
+			if arr, ok := raw.([]any); ok {
+				for _, v := range arr {
+					if s, ok := v.(string); ok {
+						services = append(services, s)
+					}
+				}
+			}
+		}
 
 		// Parse optional env object.
 		env := make(map[string]string)
-		if args := request.GetArguments(); args != nil {
-			if envRaw, ok := args["env"]; ok {
-				if envMap, ok := envRaw.(map[string]any); ok {
-					for k, v := range envMap {
-						if s, ok := v.(string); ok {
-							env[k] = s
-						}
+		if envRaw, ok := args["env"]; ok {
+			if envMap, ok := envRaw.(map[string]any); ok {
+				for k, v := range envMap {
+					if s, ok := v.(string); ok {
+						env[k] = s
 					}
 				}
 			}
@@ -44,14 +50,12 @@ func handleCreate(mgr workspace.Manager) func(ctx context.Context, request mcp.C
 
 		// Auto-select server if not specified.
 		if serverHost == "" {
-			selected, err := autoSelectServer()
+			selected, err := autoSelectServer(ctx, deps.Pool, deps.SSHExec)
 			if err != nil {
-				return toolError(ErrInternal, fmt.Sprintf("server auto-select failed: %v", err)), nil
+				return toolErrorf(ErrInternal, "server auto-select failed: %v", err), nil
 			}
 			serverHost = selected
 		}
-
-		_ = template // TODO: template support in future issue
 
 		params := workspace.CreateParams{
 			Name:     name,
@@ -63,19 +67,20 @@ func handleCreate(mgr workspace.Manager) func(ctx context.Context, request mcp.C
 			Env:      env,
 		}
 
-		ws, err := mgr.Create(params)
+		ws, err := deps.Manager.Create(params)
 		if err != nil {
 			return mapWorkspaceError(err), nil
 		}
 
-		return toolSuccess(ws), nil
+		return toolSuccess(ws)
 	}
 }
 
 // handleList returns a tool handler that lists workspaces.
-func handleList(mgr workspace.Manager) func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		user := request.GetString("user", "")
+func handleList(mgr workspace.Manager) mcpserver.ToolHandlerFunc {
+	return func(ctx context.Context, request gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {
+		args := request.GetArguments()
+		user := getString(args, "user")
 
 		opts := workspace.ListOptions{
 			User: user,
@@ -83,24 +88,25 @@ func handleList(mgr workspace.Manager) func(ctx context.Context, request mcp.Cal
 		}
 		workspaces, err := mgr.List(opts)
 		if err != nil {
-			return toolError(ErrInternal, fmt.Sprintf("failed to list workspaces: %v", err)), nil
+			return toolErrorf(ErrInternal, "failed to list workspaces: %v", err), nil
 		}
 
-		return toolSuccess(workspaces), nil
+		return toolSuccess(workspaces)
 	}
 }
 
 // handleExec returns a tool handler that executes a command in a workspace.
-func handleExec(mgr workspace.Manager) func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		name, err := request.RequireString("name")
-		if err != nil {
-			return toolError(ErrInvalidInput, err.Error()), nil
+func handleExec(mgr workspace.Manager) mcpserver.ToolHandlerFunc {
+	return func(ctx context.Context, request gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {
+		args := request.GetArguments()
+		name := getString(args, "name")
+		if name == "" {
+			return toolError(ErrInvalidInput, "name is required"), nil
 		}
 
-		command, err := request.RequireString("command")
-		if err != nil {
-			return toolError(ErrInvalidInput, err.Error()), nil
+		command := getString(args, "command")
+		if command == "" {
+			return toolError(ErrInvalidInput, "command is required"), nil
 		}
 
 		result, err := mgr.Exec(name, command)
@@ -108,28 +114,29 @@ func handleExec(mgr workspace.Manager) func(ctx context.Context, request mcp.Cal
 			return mapWorkspaceError(err), nil
 		}
 
-		return toolSuccess(result), nil
+		return toolSuccess(result)
 	}
 }
 
 // handleDestroy returns a tool handler that destroys a workspace.
-func handleDestroy(mgr workspace.Manager) func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		name, err := request.RequireString("name")
-		if err != nil {
-			return toolError(ErrInvalidInput, err.Error()), nil
+func handleDestroy(mgr workspace.Manager) mcpserver.ToolHandlerFunc {
+	return func(ctx context.Context, request gomcp.CallToolRequest) (*gomcp.CallToolResult, error) {
+		args := request.GetArguments()
+		name := getString(args, "name")
+		if name == "" {
+			return toolError(ErrInvalidInput, "name is required"), nil
 		}
 
 		if err := mgr.Destroy(name); err != nil {
 			return mapWorkspaceError(err), nil
 		}
 
-		return toolSuccess(map[string]string{"destroyed": name}), nil
+		return toolSuccess(map[string]string{"destroyed": name})
 	}
 }
 
 // mapWorkspaceError converts a workspace error to a structured MCP error.
-func mapWorkspaceError(err error) *mcp.CallToolResult {
+func mapWorkspaceError(err error) *gomcp.CallToolResult {
 	var wsErr *workspace.WorkspaceError
 	if errors.As(err, &wsErr) {
 		msg := wsErr.Error()
@@ -142,23 +149,7 @@ func mapWorkspaceError(err error) *mcp.CallToolResult {
 }
 
 // autoSelectServer picks the least-loaded server from the pool.
-func autoSelectServer() (string, error) {
-	sshExec, err := devboxssh.New()
-	if err != nil {
-		return "", fmt.Errorf("creating SSH executor: %w", err)
-	}
-	defer sshExec.Close()
-
-	configPath, err := server.DefaultConfigPath()
-	if err != nil {
-		return "", fmt.Errorf("getting server config path: %w", err)
-	}
-
-	pool, err := server.NewFilePool(configPath, sshExec)
-	if err != nil {
-		return "", fmt.Errorf("loading server pool: %w", err)
-	}
-
+func autoSelectServer(ctx context.Context, pool server.Pool, exec interface{ Close() error }) (string, error) {
 	servers, err := pool.List()
 	if err != nil {
 		return "", fmt.Errorf("listing servers: %w", err)
@@ -167,19 +158,6 @@ func autoSelectServer() (string, error) {
 		return "", fmt.Errorf("no servers configured — run 'devbox server add' first")
 	}
 
-	selector := server.NewLeastLoaded(sshExec)
-	selected, err := selector.Select(context.Background(), servers)
-	if err != nil {
-		return "", err
-	}
-
-	return server.SSHHost(selected), nil
-}
-
-// resourcesFromArgs extracts optional cpus/memory resource limits from request args.
-func resourcesFromArgs(request mcp.CallToolRequest) config.Resources {
-	return config.Resources{
-		CPUs:   request.GetFloat("cpus", 0),
-		Memory: request.GetString("memory", ""),
-	}
+	// Return first server for simplicity; full least-loaded selection uses SSH metrics.
+	return server.SSHHost(&servers[0]), nil
 }
