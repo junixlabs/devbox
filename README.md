@@ -81,6 +81,29 @@ See [docs/QUICKSTART.md](docs/QUICKSTART.md) for a detailed step-by-step guide.
 | `devbox destroy <workspace>` | Permanently remove a workspace |
 | `devbox ssh <workspace>` | SSH into a workspace |
 | `devbox doctor [--server name]` | Check prerequisites and server health |
+| `devbox mcp serve` | Start MCP server for AI agent integration |
+
+## MCP Integration
+
+devbox exposes all operations via the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) — AI agents can create workspaces, execute commands, and manage environments programmatically.
+
+```json
+{
+  "mcpServers": {
+    "devbox": {
+      "command": "devbox",
+      "args": ["mcp", "serve"]
+    }
+  }
+}
+```
+
+14 tools available: workspace lifecycle, server management, snapshots, templates, and multi-agent sessions with workspace isolation.
+
+- [MCP Server Reference](docs/MCP.md) — all tools, parameters, responses, and error codes
+- [Agent Farm Setup Guide](docs/AGENT_FARM.md) — multi-agent configuration, resource planning, isolation
+- [Claude Desktop Example](examples/claude-desktop-config.json) — drop-in MCP configuration
+- [Agent Script Example](examples/agent-script.py) — Python script using devbox MCP
 
 ## Prerequisites
 
@@ -92,6 +115,8 @@ See [docs/QUICKSTART.md](docs/QUICKSTART.md) for a detailed step-by-step guide.
 
 - [Quick Start Guide](docs/QUICKSTART.md) — from install to `devbox up` in 15 minutes
 - [Configuration Reference](docs/CONFIG.md) — all `devbox.yaml` fields explained
+- [MCP Server Reference](docs/MCP.md) — AI agent integration via Model Context Protocol
+- [Agent Farm Setup Guide](docs/AGENT_FARM.md) — multi-agent workspace management
 - [Troubleshooting](docs/TROUBLESHOOTING.md) — common issues and fixes
 
 ## License
