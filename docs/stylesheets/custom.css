@@ -1,0 +1,137 @@
+/* Landing page hero */
+.md-typeset .hero {
+  text-align: center;
+  padding: 2rem 0 3rem;
+}
+
+.md-typeset .hero h1 {
+  font-size: 2.5rem;
+  font-weight: 700;
+  margin-bottom: 0.5rem;
+}
+
+.md-typeset .hero .hero-tagline {
+  font-size: 1.25rem;
+  color: var(--md-default-fg-color--light);
+  margin-bottom: 2rem;
+}
+
+.md-typeset .hero .hero-cta {
+  display: inline-flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.md-typeset .hero .hero-cta a {
+  display: inline-block;
+  padding: 0.6rem 1.5rem;
+  border-radius: 0.3rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.md-typeset .hero .hero-cta .primary {
+  background: var(--md-primary-fg-color);
+  color: var(--md-primary-bg-color);
+}
+
+.md-typeset .hero .hero-cta .secondary {
+  border: 2px solid var(--md-primary-fg-color);
+  color: var(--md-primary-fg-color);
+}
+
+/* Terminal demo block */
+.md-typeset .terminal {
+  background: #1e1e2e;
+  color: #cdd6f4;
+  border-radius: 0.5rem;
+  padding: 1rem 1.5rem;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.85rem;
+  line-height: 1.6;
+  overflow-x: auto;
+  max-width: 600px;
+  margin: 1.5rem auto;
+  text-align: left;
+}
+
+.md-typeset .terminal .prompt {
+  color: #a6e3a1;
+}
+
+.md-typeset .terminal .comment {
+  color: #6c7086;
+}
+
+/* Feature grid */
+.md-typeset .feature-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1.5rem;
+  margin: 2rem 0;
+}
+
+.md-typeset .feature-card {
+  padding: 1.25rem;
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: 0.5rem;
+  transition: border-color 0.2s;
+}
+
+.md-typeset .feature-card:hover {
+  border-color: var(--md-primary-fg-color);
+}
+
+.md-typeset .feature-card .feature-icon {
+  font-size: 1.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.md-typeset .feature-card h3 {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+}
+
+.md-typeset .feature-card p {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--md-default-fg-color--light);
+}
+
+/* Comparison table */
+.md-typeset .compare-table table {
+  width: 100%;
+  font-size: 0.875rem;
+}
+
+/* Architecture diagram (text-based) */
+.md-typeset .architecture {
+  text-align: center;
+  padding: 1.5rem;
+  background: var(--md-code-bg-color);
+  border-radius: 0.5rem;
+  overflow-x: auto;
+  margin: 1.5rem 0;
+}
+
+/* Install section */
+.md-typeset .install-section {
+  max-width: 700px;
+  margin: 0 auto;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .md-typeset .hero h1 {
+    font-size: 1.75rem;
+  }
+
+  .md-typeset .hero .hero-tagline {
+    font-size: 1rem;
+  }
+
+  .md-typeset .feature-grid {
+    grid-template-columns: 1fr;
+  }
+}

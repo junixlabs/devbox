@@ -84,16 +84,29 @@ CLI flags take precedence over `devbox.yaml` values.
 
 ## Creating a config
 
-Use `devbox init` to create a config interactively:
+### Interactive
 
 ```bash
 devbox init
 ```
 
-Or convert from an existing Docker Compose file:
+### From Docker Compose
 
 ```bash
 devbox init --from-compose docker-compose.yml
 ```
 
-See [devbox.yaml.example](../devbox.yaml.example) for a complete annotated example.
+This extracts services and port mappings from your existing Compose file.
+
+### From a template
+
+```bash
+devbox template list          # See available templates
+devbox init --template go     # Use a built-in template
+```
+
+Built-in templates include: Go, Python, Node.js, Rails, Laravel, Next.js, Django, Rust.
+
+## devcontainer.json support
+
+devbox also reads `.devcontainer/devcontainer.json` as a fallback configuration source, following the [Development Container Specification](https://containers.dev/).

@@ -113,11 +113,17 @@ devbox exposes all operations via the [Model Context Protocol (MCP)](https://mod
 
 ## Documentation
 
-- [Quick Start Guide](docs/QUICKSTART.md) — from install to `devbox up` in 15 minutes
-- [Configuration Reference](docs/CONFIG.md) — all `devbox.yaml` fields explained
-- [MCP Server Reference](docs/MCP.md) — AI agent integration via Model Context Protocol
-- [Agent Farm Setup Guide](docs/AGENT_FARM.md) — multi-agent workspace management
-- [Troubleshooting](docs/TROUBLESHOOTING.md) — common issues and fixes
+**[https://junixlabs.github.io/devbox](https://junixlabs.github.io/devbox)**
+
+- [Quick Start Guide](https://junixlabs.github.io/devbox/getting-started/quickstart/) — from install to `devbox up` in 15 minutes
+- [Configuration Reference](https://junixlabs.github.io/devbox/getting-started/config/) — all `devbox.yaml` fields explained
+- [Developer Guide](https://junixlabs.github.io/devbox/guides/developer/) — daily workflow, templates, snapshots
+- [Admin Guide](https://junixlabs.github.io/devbox/guides/admin/) — server pools, user isolation, monitoring
+- [AI Agent Builder Guide](https://junixlabs.github.io/devbox/guides/agent-builder/) — workspace-per-agent, MCP integration
+- [MCP Server Reference](https://junixlabs.github.io/devbox/reference/mcp-server/) — AI agent integration via Model Context Protocol
+- [Plugin API](https://junixlabs.github.io/devbox/reference/plugin-api/) — extend devbox with custom providers and hooks
+- [Troubleshooting](https://junixlabs.github.io/devbox/reference/troubleshooting/) — common issues and fixes
+- [FAQ](https://junixlabs.github.io/devbox/reference/faq/) — frequently asked questions
 
 ## License
 

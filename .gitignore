@@ -37,3 +37,7 @@ Thumbs.db
 devbox.yaml
 *.log
 /tmp/
+
+# MkDocs
+/site/
+.venv/

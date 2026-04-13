@@ -44,6 +44,28 @@ ISS-50 ──┬──→ ISS-51 (plugin) → ISS-52 (community templates) ─�
          └──→ ISS-53 (CI/CD preview) ──────────────────────────┤──→ ISS-54 (Review) ★ GATE
 ```
 
+## Phase 5: MCP & Agent Farm (blocked by ISS-54)
+```
+ISS-54 ──→ ISS-61 (MCP Core Tools) ──┬──→ ISS-62 (Server & Resource Tools) ──┐
+                                      ├──→ ISS-63 (Snapshot & Template Tools) ┤
+                                      └──→ ISS-64 (Agent Farm Sessions) ──────┤
+                                                                               ↓
+                                                                          ISS-65 (Tests)
+                                                                               ↓
+                                                                          ISS-66 (Docs)
+                                                                               ↓
+                                                                          ISS-67 (Review) ★ GATE
+```
+
+## Phase 6: Website & Docs (parallel with Phase 5)
+```
+ISS-69 (MkDocs Setup) ──→ ISS-70 (Landing Page) ──→ ISS-72 (Migration/FAQ)
+         │                                                     │
+         └──→ ISS-71 (User Guides) ────────────────────────────┤
+                                                                ↓
+                                                          ISS-73 (Review) ★ GATE
+```
+
 ## Document IDs (for MCP calls)
 | ISS | documentId |
 |-----|-----------|
@@ -79,3 +101,15 @@ ISS-50 ──┬──→ ISS-51 (plugin) → ISS-52 (community templates) ─�
 | 52 | a8hqmlitrk2sp8q7ko88r3nr |
 | 53 | p45ldoiyrmn3tc3ucqdnfx7t |
 | 54 | uz93t6ov36id0qxiylt8442r |
+| 61 | vodbmcqjoivt4urctmfntkgm |
+| 62 | bj86l32s9ufog3pllpes9006 |
+| 63 | khw47k3zn4gxwre3sg0q0o4w |
+| 64 | f5pvcc11f6gsq6cboxa0c4gl |
+| 65 | apdrgmt5c2afrc9x7z79y6ds |
+| 66 | sbfna8dv8n66nuf2kd9csssw |
+| 67 | yo6e3q3vq0h6pafvgl2rjfcx |
+| 69 | orzxxbzjryowdynxtp667z94 |
+| 70 | jd8n8phlcd8ijrs3kv01mo2k |
+| 71 | dh2w92is9f7agdat9k4486m7 |
+| 72 | fn90qhfoe10scamk9v56rm6i |
+| 73 | r5ins098mlsfgxx2lz3mqfy8 |

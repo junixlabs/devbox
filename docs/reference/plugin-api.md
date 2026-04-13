@@ -1,4 +1,4 @@
-# Devbox Plugin API
+# Plugin API
 
 ## Overview
 

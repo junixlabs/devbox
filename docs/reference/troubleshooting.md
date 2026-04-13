@@ -35,7 +35,7 @@ name: my-project
 server: dev1
 ```
 
-See [CONFIG.md](CONFIG.md) for all required fields.
+See [Configuration Reference](../getting-started/config.md) for all required fields.
 
 ### Cannot connect to server via SSH
 
@@ -78,7 +78,7 @@ See [CONFIG.md](CONFIG.md) for all required fields.
 
 3. Add your user to the docker group (avoids needing `sudo`):
    ```bash
-   ssh dev1 "sudo usermod -aG docker \$USER"
+   ssh dev1 "sudo usermod -aG docker $USER"
    ```
 
 ### Tailscale serve failed
@@ -147,7 +147,7 @@ devbox up
 
 1. Add your user to the docker group:
    ```bash
-   ssh dev1 "sudo usermod -aG docker \$USER"
+   ssh dev1 "sudo usermod -aG docker $USER"
    ```
 
 2. Log out and back in for the group change to take effect:

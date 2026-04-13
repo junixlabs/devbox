@@ -1,0 +1,90 @@
+site_name: devbox
+site_url: https://junixlabs.github.io/devbox
+site_description: Turn any Linux machine into a ready-to-use dev environment in one command
+site_author: junixlabs
+repo_url: https://github.com/junixlabs/devbox
+repo_name: junixlabs/devbox
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: deep purple
+      accent: amber
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: deep purple
+      accent: amber
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+    - content.tabs.link
+  icon:
+    repo: fontawesome/brands/github
+  font:
+    text: Inter
+    code: JetBrains Mono
+
+plugins:
+  - search
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+
+extra_css:
+  - stylesheets/custom.css
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/junixlabs/devbox
+
+nav:
+  - Home: index.md
+  - Getting Started:
+    - Quick Start: getting-started/quickstart.md
+    - Configuration: getting-started/config.md
+  - Guides:
+    - Developer Guide: guides/developer.md
+    - Admin Guide: guides/admin.md
+    - AI Agent Builder: guides/agent-builder.md
+    - Agent Farm Setup: guides/agent-farm.md
+    - Migrate from Codespaces: guides/migrate-codespaces.md
+    - Migrate from DevPod: guides/migrate-devpod.md
+  - Reference:
+    - MCP Server: reference/mcp-server.md
+    - Plugin API: reference/plugin-api.md
+    - Troubleshooting: reference/troubleshooting.md
+    - FAQ: reference/faq.md
