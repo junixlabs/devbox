@@ -16,7 +16,7 @@ AI coding agents need the same things human developers need: a machine to run co
 
 - devbox installed and configured ([Quick Start](../getting-started/quickstart.md))
 - At least one server in the pool
-- For MCP: Phase 5 MCP server (coming soon)
+- For MCP: devbox MCP server ([reference](../reference/mcp-server.md))
 
 ## Architecture
 
