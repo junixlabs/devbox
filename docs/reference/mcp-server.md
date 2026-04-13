@@ -27,7 +27,7 @@ Add to your `claude_desktop_config.json`:
 }
 ```
 
-See [`examples/claude-desktop-config.json`](../examples/claude-desktop-config.json) for a complete example.
+See the [`examples/claude-desktop-config.json`](https://github.com/junixlabs/devbox/blob/main/examples/claude-desktop-config.json) for a complete example.
 
 ### Custom Client
 
@@ -361,7 +361,7 @@ Search the community template registry.
 
 ### Agent Tools
 
-These tools enable multi-agent session management. See the [Agent Farm Setup Guide](AGENT_FARM.md) for full details.
+These tools enable multi-agent session management. See the [Agent Farm Setup Guide](../guides/agent-farm.md) for full details.
 
 #### `devbox_agent_register`
 

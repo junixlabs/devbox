@@ -201,7 +201,7 @@ Add devbox to Claude Desktop's MCP configuration:
 }
 ```
 
-Claude can then create workspaces, execute commands, and manage environments through natural language. See [`examples/claude-desktop-config.json`](../examples/claude-desktop-config.json) for a complete configuration.
+Claude can then create workspaces, execute commands, and manage environments through natural language. See the [`examples/claude-desktop-config.json`](https://github.com/junixlabs/devbox/blob/main/examples/claude-desktop-config.json) for a complete configuration.
 
 ## Best Practices
 
@@ -214,6 +214,6 @@ Claude can then create workspaces, execute commands, and manage environments thr
 
 ## Further Reading
 
-- [MCP Server Reference](MCP.md) — all tools, parameters, responses, and error codes
-- [CLI Quick Start](QUICKSTART.md) — getting started with devbox
-- [Configuration Reference](CONFIG.md) — all `devbox.yaml` fields
+- [MCP Server Reference](../reference/mcp-server.md) — all tools, parameters, responses, and error codes
+- [CLI Quick Start](../getting-started/quickstart.md) — getting started with devbox
+- [Configuration Reference](../getting-started/config.md) — all `devbox.yaml` fields

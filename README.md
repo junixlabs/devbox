@@ -68,7 +68,7 @@ devbox up
 devbox ssh my-project
 ```
 
-See [docs/QUICKSTART.md](docs/QUICKSTART.md) for a detailed step-by-step guide.
+See the [Quick Start Guide](https://junixlabs.github.io/devbox/getting-started/quickstart/) for a detailed step-by-step guide.
 
 ## Commands
 
@@ -100,8 +100,8 @@ devbox exposes all operations via the [Model Context Protocol (MCP)](https://mod
 
 14 tools available: workspace lifecycle, server management, snapshots, templates, and multi-agent sessions with workspace isolation.
 
-- [MCP Server Reference](docs/MCP.md) — all tools, parameters, responses, and error codes
-- [Agent Farm Setup Guide](docs/AGENT_FARM.md) — multi-agent configuration, resource planning, isolation
+- [MCP Server Reference](https://junixlabs.github.io/devbox/reference/mcp-server/) — all tools, parameters, responses, and error codes
+- [Agent Farm Setup Guide](https://junixlabs.github.io/devbox/guides/agent-farm/) — multi-agent configuration, resource planning, isolation
 - [Claude Desktop Example](examples/claude-desktop-config.json) — drop-in MCP configuration
 - [Agent Script Example](examples/agent-script.py) — Python script using devbox MCP
 
