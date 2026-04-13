@@ -31,9 +31,9 @@ The interactive prompts will ask for:
     Skip manual setup with a built-in template:
     ```bash
     devbox template list              # See available templates
-    devbox init --template go         # Go project with common defaults
-    devbox init --template rails      # Rails with PostgreSQL + Redis
-    devbox init --template nextjs     # Next.js with Node.js
+    devbox up --template go            # Go project with common defaults
+    devbox up --template rails         # Rails with PostgreSQL + Redis
+    devbox up --template nextjs        # Next.js with Node.js
     ```
 
 ### 2. Start your workspace
