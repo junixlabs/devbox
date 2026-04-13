@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -302,6 +303,59 @@ func (m *remoteManager) SSH(name string) error {
 		}
 	}
 	return nil
+}
+
+func (m *remoteManager) Exec(name string, command string) (*ExecResult, error) {
+	if command == "" {
+		return nil, &WorkspaceError{
+			Message:    "command must not be empty",
+			Suggestion: "Provide a command to execute, e.g. devbox exec myws 'ls -la'",
+		}
+	}
+
+	ws, err := m.mustGet(name)
+	if err != nil {
+		return nil, err
+	}
+
+	if ws.Status != StatusRunning {
+		return nil, &WorkspaceError{
+			Message:    fmt.Sprintf("workspace %q is not running (status: %s)", name, ws.Status),
+			Suggestion: fmt.Sprintf("Start it first: devbox up %s", name),
+		}
+	}
+
+	sshExec, err := newSSH()
+	if err != nil {
+		return nil, err
+	}
+	defer sshExec.Close()
+
+	containerName := ws.Name + "-" + firstService(ws.Services) + "-1"
+	// Escape single quotes in the command for safe shell injection prevention.
+	escaped := strings.ReplaceAll(command, "'", "'\\''")
+	dockerCmd := fmt.Sprintf("docker exec %s sh -c '%s'", containerName, escaped)
+
+	slog.Debug("exec in container", "host", ws.ServerHost, "container", containerName, "command", command)
+
+	stdout, stderr, execErr := sshExec.Run(context.Background(), ws.ServerHost, dockerCmd)
+	result := &ExecResult{
+		Stdout:   stdout,
+		Stderr:   stderr,
+		ExitCode: 0,
+	}
+
+	if execErr != nil {
+		// Try to extract exit code from the error.
+		var exitErr *exec.ExitError
+		if errors.As(execErr, &exitErr) {
+			result.ExitCode = exitErr.ExitCode()
+		} else {
+			result.ExitCode = 1
+		}
+	}
+
+	return result, nil
 }
 
 func (m *remoteManager) DockerStats(host string) (map[string]*ResourceUsage, error) {
