@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
+	"strings"
 
-	"github.com/junixlabs/devbox/internal/config"
 	"github.com/junixlabs/devbox/internal/server"
 	devboxssh "github.com/junixlabs/devbox/internal/ssh"
+	"github.com/junixlabs/devbox/internal/tailscale"
 	"github.com/junixlabs/devbox/internal/workspace"
 	"github.com/mark3labs/mcp-go/mcp"
 )
@@ -120,6 +122,14 @@ func handleDestroy(mgr workspace.Manager) func(ctx context.Context, request mcp.
 			return toolError(ErrInvalidInput, err.Error()), nil
 		}
 
+		// Look up workspace before destroy to clean up Tailscale serve ports.
+		ws, err := mgr.Get(name)
+		if err != nil {
+			return mapWorkspaceError(err), nil
+		}
+
+		unservePorts(ws)
+
 		if err := mgr.Destroy(name); err != nil {
 			return mapWorkspaceError(err), nil
 		}
@@ -128,7 +138,8 @@ func handleDestroy(mgr workspace.Manager) func(ctx context.Context, request mcp.
 	}
 }
 
-// mapWorkspaceError converts a workspace error to a structured MCP error.
+// mapWorkspaceError converts a workspace error to a structured MCP error
+// with an appropriate error code based on the error message.
 func mapWorkspaceError(err error) *mcp.CallToolResult {
 	var wsErr *workspace.WorkspaceError
 	if errors.As(err, &wsErr) {
@@ -136,9 +147,27 @@ func mapWorkspaceError(err error) *mcp.CallToolResult {
 		if wsErr.GetSuggestion() != "" {
 			msg += " (hint: " + wsErr.GetSuggestion() + ")"
 		}
-		return toolError(ErrNotFound, msg)
+		code := classifyWorkspaceError(wsErr)
+		return toolError(code, msg)
 	}
 	return toolError(ErrInternal, err.Error())
+}
+
+// classifyWorkspaceError maps a WorkspaceError to the appropriate MCP error code.
+func classifyWorkspaceError(wsErr *workspace.WorkspaceError) string {
+	msg := wsErr.Message
+	switch {
+	case strings.Contains(msg, "not running"):
+		return ErrNotRunning
+	case strings.Contains(msg, "not found"):
+		return ErrNotFound
+	case strings.Contains(msg, "invalid"),
+		strings.Contains(msg, "already exists"),
+		strings.Contains(msg, "must not be empty"):
+		return ErrInvalidInput
+	default:
+		return ErrInternal
+	}
 }
 
 // autoSelectServer picks the least-loaded server from the pool.
@@ -176,10 +205,32 @@ func autoSelectServer() (string, error) {
 	return server.SSHHost(selected), nil
 }
 
-// resourcesFromArgs extracts optional cpus/memory resource limits from request args.
-func resourcesFromArgs(request mcp.CallToolRequest) config.Resources {
-	return config.Resources{
-		CPUs:   request.GetFloat("cpus", 0),
-		Memory: request.GetString("memory", ""),
+// unservePorts tears down Tailscale serve entries for all workspace ports.
+// Errors are logged as warnings but do not stop the operation.
+func unservePorts(ws *workspace.Workspace) {
+	if len(ws.Ports) == 0 {
+		return
+	}
+
+	sshExec, err := devboxssh.New()
+	if err != nil {
+		slog.Warn("failed to connect for port cleanup", "error", err)
+		return
+	}
+	defer sshExec.Close()
+
+	runner := func(command string, args ...string) ([]byte, error) {
+		parts := make([]string, 0, len(args)+1)
+		parts = append(parts, command)
+		parts = append(parts, args...)
+		stdout, _, err := sshExec.Run(context.Background(), ws.ServerHost, strings.Join(parts, " "))
+		return []byte(stdout), err
+	}
+
+	tm := tailscale.NewManager(runner)
+	for _, port := range ws.Ports {
+		if err := tm.Unserve(port); err != nil {
+			slog.Warn("failed to unserve port", "port", port, "error", err)
+		}
 	}
 }
