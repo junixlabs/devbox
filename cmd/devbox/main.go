@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/junixlabs/devbox/internal/ci"
-	devboxmcp "github.com/junixlabs/devbox/internal/mcp"
 	"github.com/junixlabs/devbox/internal/config"
 	"github.com/junixlabs/devbox/internal/doctor"
 	devboxerr "github.com/junixlabs/devbox/internal/errors"
@@ -1493,26 +1492,6 @@ func copyDir(src, dst string) error {
 		// Skip non-regular, non-directory entries (pipes, sockets, devices).
 	}
 	return nil
-}
-
-func mcpCmd(wm workspace.Manager) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "mcp",
-		Short: "MCP server for AI agent integration",
-		Long:  "Model Context Protocol server that exposes devbox workspace tools to AI agents.",
-	}
-
-	serveCmd := &cobra.Command{
-		Use:   "serve",
-		Short: "Start the MCP server over stdio",
-		Long:  "Start an MCP server that communicates via stdin/stdout JSON-RPC.\nAI agents connect by launching 'devbox mcp serve' as a subprocess.",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return devboxmcp.Serve(wm)
-		},
-	}
-
-	cmd.AddCommand(serveCmd)
-	return cmd
 }
 
 func ciCmd(wm workspace.Manager) *cobra.Command {
