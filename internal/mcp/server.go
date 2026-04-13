@@ -9,17 +9,23 @@ import (
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
 	"github.com/junixlabs/devbox/internal/metrics"
+	"github.com/junixlabs/devbox/internal/registry"
 	"github.com/junixlabs/devbox/internal/server"
+	"github.com/junixlabs/devbox/internal/snapshot"
 	devboxssh "github.com/junixlabs/devbox/internal/ssh"
+	"github.com/junixlabs/devbox/internal/template"
 	"github.com/junixlabs/devbox/internal/workspace"
 )
 
 // Deps holds the dependencies for the MCP server.
 type Deps struct {
-	Manager   workspace.Manager
-	Pool      server.Pool
-	Collector metrics.Collector
-	SSHExec   devboxssh.Executor
+	Manager     workspace.Manager
+	Pool        server.Pool
+	Collector   metrics.Collector
+	SSHExec     devboxssh.Executor
+	SnapshotMgr snapshot.Manager
+	TemplateReg *template.LocalRegistry
+	RemoteReg   *registry.RemoteRegistry
 }
 
 // NewServer creates an MCP server and registers all tools.
@@ -51,6 +57,58 @@ func NewServer(deps Deps, version string) *mcpserver.MCPServer {
 		),
 		handleMetrics(deps.Manager, deps.Pool, deps.Collector),
 	)
+
+	// Snapshot tools.
+	if deps.SnapshotMgr != nil {
+		srv.AddTool(
+			gomcp.NewTool("devbox_snapshot_create",
+				gomcp.WithDescription("Save a snapshot of a workspace's Docker volumes and config files"),
+				gomcp.WithString("server", gomcp.Required(), gomcp.Description("Server host where the workspace runs")),
+				gomcp.WithString("workspace", gomcp.Required(), gomcp.Description("Workspace name")),
+				gomcp.WithString("name", gomcp.Description("Snapshot name (auto-generated if omitted)")),
+			),
+			handleSnapshotCreate(deps.SnapshotMgr),
+		)
+
+		srv.AddTool(
+			gomcp.NewTool("devbox_snapshot_restore",
+				gomcp.WithDescription("Restore a workspace from a previously saved snapshot"),
+				gomcp.WithString("server", gomcp.Required(), gomcp.Description("Server host where the workspace runs")),
+				gomcp.WithString("workspace", gomcp.Required(), gomcp.Description("Workspace name")),
+				gomcp.WithString("name", gomcp.Required(), gomcp.Description("Snapshot name to restore")),
+			),
+			handleSnapshotRestore(deps.SnapshotMgr),
+		)
+
+		srv.AddTool(
+			gomcp.NewTool("devbox_snapshot_list",
+				gomcp.WithDescription("List all snapshots for a workspace"),
+				gomcp.WithString("server", gomcp.Required(), gomcp.Description("Server host where the workspace runs")),
+				gomcp.WithString("workspace", gomcp.Required(), gomcp.Description("Workspace name")),
+			),
+			handleSnapshotList(deps.SnapshotMgr),
+		)
+	}
+
+	// Template tools.
+	if deps.TemplateReg != nil {
+		srv.AddTool(
+			gomcp.NewTool("devbox_template_list",
+				gomcp.WithDescription("List available workspace templates (built-in and custom)"),
+			),
+			handleTemplateList(deps.TemplateReg),
+		)
+	}
+
+	if deps.RemoteReg != nil {
+		srv.AddTool(
+			gomcp.NewTool("devbox_template_search",
+				gomcp.WithDescription("Search the community template registry"),
+				gomcp.WithString("query", gomcp.Required(), gomcp.Description("Search query (matches template name and description)")),
+			),
+			handleTemplateSearch(deps.RemoteReg),
+		)
+	}
 
 	return srv
 }
