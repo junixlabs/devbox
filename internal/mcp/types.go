@@ -13,6 +13,7 @@ const (
 	ErrInvalidInput = "INVALID_INPUT"
 	ErrInternal     = "INTERNAL"
 	ErrNotRunning   = "NOT_RUNNING"
+	ErrForbidden    = "FORBIDDEN"
 )
 
 // toolError returns an MCP error result with a structured JSON body.

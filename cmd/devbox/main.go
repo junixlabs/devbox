@@ -13,8 +13,8 @@ import (
 	"time"
 
 	"github.com/junixlabs/devbox/internal/ci"
-	devboxmcp "github.com/junixlabs/devbox/internal/mcp"
 	"github.com/junixlabs/devbox/internal/config"
+	devboxmcp "github.com/junixlabs/devbox/internal/mcp"
 	"github.com/junixlabs/devbox/internal/doctor"
 	devboxerr "github.com/junixlabs/devbox/internal/errors"
 	"github.com/junixlabs/devbox/internal/identity"
@@ -1504,9 +1504,22 @@ func mcpCmd(wm workspace.Manager) *cobra.Command {
 	serveCmd := &cobra.Command{
 		Use:   "serve",
 		Short: "Start the MCP server over stdio",
-		Long:  "Start an MCP server that communicates via stdin/stdout JSON-RPC.\nAI agents connect by launching 'devbox mcp serve' as a subprocess.",
+		Long:  "Start an MCP server that communicates via stdin/stdout JSON-RPC.\nAI agents connect by launching 'devbox mcp serve' as a subprocess.\nAgents can register via devbox_agent_register to get isolated workspaces.",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return devboxmcp.Serve(wm)
+			registry, err := devboxmcp.NewAgentRegistry()
+			if err != nil {
+				return fmt.Errorf("initializing agent registry: %w", err)
+			}
+
+			deps := devboxmcp.Deps{
+				Manager:  wm,
+				Registry: registry,
+			}
+
+			// ServeStdio handles SIGINT/SIGTERM internally.
+			// Serve() runs cleanup (agent deregister + workspace destroy)
+			// after ServeStdio returns, whether from signal or stdin EOF.
+			return devboxmcp.Serve(deps)
 		},
 	}
 
