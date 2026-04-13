@@ -1759,11 +1759,23 @@ func mcpCmd(wm workspace.Manager) *cobra.Command {
 
 			collector := metrics.NewCollector(sshExec)
 
+			snapMgr := snapshot.NewManager(sshExec)
+
+			templateReg, err := tmpl.NewDefaultRegistry()
+			if err != nil {
+				return fmt.Errorf("devbox mcp serve: %w", err)
+			}
+
+			remoteReg := registry.NewRemoteRegistry("")
+
 			deps := devboxmcp.Deps{
-				Manager:   wm,
-				Pool:      pool,
-				Collector: collector,
-				SSHExec:   sshExec,
+				Manager:     wm,
+				Pool:        pool,
+				Collector:   collector,
+				SSHExec:     sshExec,
+				SnapshotMgr: snapMgr,
+				TemplateReg: templateReg,
+				RemoteReg:   remoteReg,
 			}
 
 			return devboxmcp.Serve(deps, version)
