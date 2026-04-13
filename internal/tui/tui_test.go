@@ -40,6 +40,10 @@ func (m *mockManager) Get(name string) (*workspace.Workspace, error) {
 
 func (m *mockManager) SSH(name string) error { return nil }
 
+func (m *mockManager) Exec(name string, command string) (*workspace.ExecResult, error) {
+	return &workspace.ExecResult{}, nil
+}
+
 func (m *mockManager) DockerStats(host string) (map[string]*workspace.ResourceUsage, error) {
 	return nil, nil
 }

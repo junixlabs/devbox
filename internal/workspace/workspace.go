@@ -79,11 +79,22 @@ type Manager interface {
 	// SSH opens an interactive SSH session into a workspace.
 	SSH(name string) error
 
+	// Exec runs a command non-interactively in a workspace container,
+	// returning captured stdout, stderr, and exit code.
+	Exec(name string, command string) (*ExecResult, error)
+
 	// DockerStats returns live resource usage for all containers on a host.
 	DockerStats(host string) (map[string]*ResourceUsage, error)
 
 	// ServerResources returns total CPU and memory for a host.
 	ServerResources(host string) (*ServerResourceInfo, error)
+}
+
+// ExecResult holds the output of a non-interactive command execution.
+type ExecResult struct {
+	Stdout   string `json:"stdout"`
+	Stderr   string `json:"stderr"`
+	ExitCode int    `json:"exit_code"`
 }
 
 // WorkspaceError represents a workspace-related error with a suggestion.
