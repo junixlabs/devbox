@@ -44,3 +44,4 @@ devbox.yaml
 
 # Claude Code
 .claude/
+.mcp.json
