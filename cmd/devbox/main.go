@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -20,6 +21,7 @@ import (
 	"github.com/junixlabs/devbox/internal/metrics"
 	"github.com/junixlabs/devbox/internal/plugin"
 	"github.com/junixlabs/devbox/internal/plugin/docker"
+	"github.com/junixlabs/devbox/internal/preview"
 	"github.com/junixlabs/devbox/internal/registry"
 	"github.com/junixlabs/devbox/internal/server"
 	"github.com/junixlabs/devbox/internal/snapshot"
@@ -154,6 +156,48 @@ func unservePorts(ws *workspace.Workspace) {
 			fmt.Fprintf(os.Stderr, "Warning: failed to unserve port %d: %v\n", port, err)
 		}
 	}
+}
+
+// printJSON writes v as indented JSON to stdout (the machine-readable channel
+// for orchestrators like Forge). Human status/spinner output goes to stderr.
+func printJSON(v any) error {
+	b, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encoding JSON output: %w", err)
+	}
+	fmt.Println(string(b))
+	return nil
+}
+
+// resolveFQDN best-effort resolves a server's Tailscale MagicDNS FQDN via SSH.
+// Returns "" on any failure (non-fatal — the caller treats an empty FQDN as
+// "off-tailnet", and connect URLs are simply omitted).
+func resolveFQDN(sshExec devboxssh.Executor, serverHost string) string {
+	tm := tailscale.NewManager(remoteRunner(sshExec, serverHost))
+	st, err := tm.Status()
+	if err != nil || st == nil {
+		return ""
+	}
+	return tailscale.MagicDNSFQDN(st.Hostname, st.TailnetName)
+}
+
+// printWorkspacesJSON emits workspaces as a JSON array with per-workspace
+// connect URLs, resolving each server's tailnet FQDN once (best-effort).
+func printWorkspacesJSON(workspaces []workspace.Workspace) error {
+	fqdnByServer := map[string]string{}
+	if sshExec, err := devboxssh.New(); err == nil {
+		defer sshExec.Close()
+		for _, ws := range workspaces {
+			if _, ok := fqdnByServer[ws.ServerHost]; !ok {
+				fqdnByServer[ws.ServerHost] = resolveFQDN(sshExec, ws.ServerHost)
+			}
+		}
+	}
+	entries := make([]preview.ListEntry, 0, len(workspaces))
+	for _, ws := range workspaces {
+		entries = append(entries, preview.NewListEntry(ws, fqdnByServer[ws.ServerHost]))
+	}
+	return printJSON(entries)
 }
 
 func upCmd(wm workspace.Manager) *cobra.Command {
@@ -358,6 +402,25 @@ func upCmd(wm workspace.Manager) *cobra.Command {
 			ui.StopSpinner(spin, true)
 
 			tsStatus, _ := tm.Status()
+
+			// Machine-readable output for orchestrators (Forge): structured
+			// preview result on stdout instead of the human block.
+			if jsonOut, _ := cmd.Flags().GetBool("json"); jsonOut {
+				fqdn := ""
+				if tsStatus != nil {
+					fqdn = tailscale.MagicDNSFQDN(tsStatus.Hostname, tsStatus.TailnetName)
+				}
+				mode := ""
+				if cfg.Runtime == config.RuntimeHost {
+					mode = "fast-refresh"
+				}
+				res, err := preview.Build(*ws, fqdn, mode)
+				if err != nil {
+					return fmt.Errorf("devbox up: %w", err)
+				}
+				return printJSON(res)
+			}
+
 			url := ""
 			if tsStatus != nil {
 				url = tailscale.WorkspaceURL(tsStatus.Hostname, tsStatus.TailnetName)
@@ -370,6 +433,7 @@ func upCmd(wm workspace.Manager) *cobra.Command {
 	cmd.Flags().String("branch", "", "Git branch to checkout")
 	cmd.Flags().String("server", "", "Target server name from pool (or hostname)")
 	cmd.Flags().String("template", "", "Create workspace from a template (e.g. laravel, nextjs)")
+	cmd.Flags().Bool("json", false, "Emit a machine-readable preview result (status, connectUrl, qr, mode) on stdout instead of the human summary")
 	return cmd
 }
 
@@ -435,6 +499,12 @@ func listCmd(wm workspace.Manager) *cobra.Command {
 					}
 				}
 				workspaces = filtered
+			}
+
+			// Machine-readable output for orchestrators (Forge): each
+			// workspace with its connect URL, no docker-stats round-trips.
+			if jsonOut, _ := cmd.Flags().GetBool("json"); jsonOut {
+				return printWorkspacesJSON(workspaces)
 			}
 
 			if len(workspaces) == 0 {
@@ -526,6 +596,7 @@ func listCmd(wm workspace.Manager) *cobra.Command {
 		},
 	}
 	cmd.Flags().Bool("all", false, "Show all users' workspaces")
+	cmd.Flags().Bool("json", false, "Emit machine-readable JSON (name, status, server, connectUrl per workspace)")
 	cmd.Flags().String("server", "", "Filter workspaces by server name or hostname")
 	return cmd
 }
