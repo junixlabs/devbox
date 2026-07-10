@@ -23,6 +23,7 @@ func (m *mockManager) Create(params workspace.CreateParams) (*workspace.Workspac
 }
 
 func (m *mockManager) Start(name string) error   { return m.startErr }
+func (m *mockManager) BuildEAS(name, profile string) (string, error) { return "", nil }
 func (m *mockManager) Stop(name string) error    { return m.stopErr }
 func (m *mockManager) Destroy(name string) error { return m.destroyErr }
 

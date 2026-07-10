@@ -33,6 +33,16 @@ type Refresher interface {
 	Restart(ctx context.Context) error
 }
 
+// EASBuilder is implemented by executors that can produce a native app build
+// via EAS (Expo Application Services) — currently only hostExecutor. Callers
+// type-assert on it (like PIDReporter/Refresher) and treat its absence as
+// "this runtime does not support builds".
+type EASBuilder interface {
+	// BuildAndroid runs an EAS Android build for the given profile and
+	// returns the installable artifact URL of the produced app.
+	BuildAndroid(ctx context.Context, profile string) (string, error)
+}
+
 // Executor defines the lifecycle operations a runtime must implement.
 type Executor interface {
 	// Deploy provisions the workspace for the first time and starts it.

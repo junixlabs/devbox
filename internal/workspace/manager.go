@@ -440,6 +440,41 @@ func (m *remoteManager) Refresh(params RefreshParams) (*Workspace, error) {
 	return ws, nil
 }
 
+// BuildEAS runs an EAS Android build for an existing host-runtime workspace and
+// returns the installable artifact URL. Only host-runtime (Expo) workspaces are
+// supported — the executor must implement executor.EASBuilder.
+func (m *remoteManager) BuildEAS(name, profile string) (string, error) {
+	ws, err := m.mustGet(name)
+	if err != nil {
+		return "", err
+	}
+	if ws.Runtime != config.RuntimeHost {
+		return "", &WorkspaceError{
+			Message:    fmt.Sprintf("workspace %q is not a host-runtime workspace; EAS build requires runtime: host", ws.Name),
+			Suggestion: "EAS build mode applies only to runtime: host (Expo) workspaces",
+		}
+	}
+
+	sshExec, err := m.newSSHExecutor()
+	if err != nil {
+		return "", err
+	}
+	defer sshExec.Close()
+
+	ex, err := m.newExecutor(sshExec, ws)
+	if err != nil {
+		return "", fmt.Errorf("creating executor: %w", err)
+	}
+	builder, ok := ex.(executor.EASBuilder)
+	if !ok {
+		return "", &WorkspaceError{
+			Message:    fmt.Sprintf("workspace %q runtime does not support EAS builds", ws.Name),
+			Suggestion: "EAS build mode requires a host-runtime workspace",
+		}
+	}
+	return builder.BuildAndroid(context.Background(), profile)
+}
+
 func (m *remoteManager) Stop(name string) error {
 	ws, err := m.mustGet(name)
 	if err != nil {
