@@ -3,6 +3,7 @@ package workspace
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/junixlabs/devbox/internal/config"
 	"github.com/junixlabs/devbox/internal/docker"
+	"github.com/junixlabs/devbox/internal/executor"
 	devboxssh "github.com/junixlabs/devbox/internal/ssh"
 )
 
@@ -108,34 +110,37 @@ func (m *remoteManager) Create(params CreateParams) (*Workspace, error) {
 		}
 	}
 
-	// Generate compose YAML and deploy via docker manager.
+	// Build the runtime-neutral config and deploy via the selected executor.
 	var res *config.Resources
 	if !params.Resources.IsZero() {
 		res = &params.Resources
 	}
+	runtime := params.Runtime
+	if runtime == "" {
+		runtime = config.RuntimeDocker
+	}
 	cfg := &config.DevboxConfig{
-		Name:      params.Name,
-		Server:    params.Server,
-		Repo:      params.Repo,
-		Branch:    params.Branch,
-		Services:  params.Services,
-		Ports:     params.Ports,
-		Env:       params.Env,
-		Resources: res,
-	}
-	composeYAML, err := docker.GenerateCompose(params.Name, cfg)
-	if err != nil {
-		sshExec.Run(ctx, params.Server, fmt.Sprintf("rm -rf %s", wsDir)) //nolint:errcheck
-		return nil, fmt.Errorf("generating compose file: %w", err)
-	}
-
-	dockerMgr, err := docker.NewManager(sshExec, params.Server, params.Name)
-	if err != nil {
-		sshExec.Run(ctx, params.Server, fmt.Sprintf("rm -rf %s", wsDir)) //nolint:errcheck
-		return nil, fmt.Errorf("creating docker manager: %w", err)
+		Name:           params.Name,
+		Server:         params.Server,
+		Repo:           params.Repo,
+		Branch:         params.Branch,
+		Runtime:        runtime,
+		Setup:          params.Setup,
+		Serve:          params.Serve,
+		Services:       params.Services,
+		Ports:          params.Ports,
+		Env:            params.Env,
+		Resources:      res,
+		WorkspacesRoot: docker.WorkspaceBaseDir,
 	}
 
-	if err := dockerMgr.Deploy(ctx, composeYAML); err != nil {
+	ex, err := executor.New(sshExec, cfg, params.Server, params.Name)
+	if err != nil {
+		sshExec.Run(ctx, params.Server, fmt.Sprintf("rm -rf %s", wsDir)) //nolint:errcheck
+		return nil, fmt.Errorf("creating executor: %w", err)
+	}
+
+	if err := ex.Deploy(ctx); err != nil {
 		sshExec.Run(ctx, params.Server, fmt.Sprintf("rm -rf %s", wsDir)) //nolint:errcheck
 		return nil, fmt.Errorf("deploying workspace: %w", err)
 	}
@@ -149,6 +154,9 @@ func (m *remoteManager) Create(params CreateParams) (*Workspace, error) {
 		Status:     StatusRunning,
 		ServerHost: params.Server,
 		Repo:       params.Repo,
+		Runtime:    runtime,
+		Setup:      params.Setup,
+		Serve:      params.Serve,
 		Ports:      params.Ports,
 		Env:        params.Env,
 		Services:   params.Services,
@@ -156,12 +164,33 @@ func (m *remoteManager) Create(params CreateParams) (*Workspace, error) {
 		CreatedAt:  now,
 		StartedAt:  &now,
 	}
+	if pr, ok := ex.(executor.PIDReporter); ok {
+		if pid, err := pr.PID(ctx); err == nil {
+			ws.ServePID = pid
+		}
+	}
 
 	if err := m.state.Put(ws); err != nil {
 		return nil, fmt.Errorf("saving workspace state: %w", err)
 	}
 
 	return ws, nil
+}
+
+// newExecutor reconstructs an Executor for an existing workspace from its
+// persisted state (runtime, setup, serve).
+func (m *remoteManager) newExecutor(sshExec devboxssh.Executor, ws *Workspace) (executor.Executor, error) {
+	cfg := &config.DevboxConfig{
+		Name:           ws.Name,
+		Server:         ws.ServerHost,
+		Runtime:        ws.Runtime,
+		Setup:          ws.Setup,
+		Serve:          ws.Serve,
+		Services:       ws.Services,
+		Env:            ws.Env,
+		WorkspacesRoot: docker.WorkspaceBaseDir,
+	}
+	return executor.New(sshExec, cfg, ws.ServerHost, ws.Name)
 }
 
 func (m *remoteManager) Start(name string) error {
@@ -180,13 +209,19 @@ func (m *remoteManager) Start(name string) error {
 	}
 	defer sshExec.Close()
 
-	dockerMgr, err := docker.NewManager(sshExec, ws.ServerHost, ws.Name)
+	ex, err := m.newExecutor(sshExec, ws)
 	if err != nil {
-		return fmt.Errorf("creating docker manager: %w", err)
+		return fmt.Errorf("creating executor: %w", err)
 	}
 
-	if err := dockerMgr.Up(context.Background()); err != nil {
-		return fmt.Errorf("starting workspace containers: %w", err)
+	if err := ex.Up(context.Background()); err != nil {
+		return fmt.Errorf("starting workspace: %w", err)
+	}
+
+	if pr, ok := ex.(executor.PIDReporter); ok {
+		if pid, err := pr.PID(context.Background()); err == nil {
+			ws.ServePID = pid
+		}
 	}
 
 	now := time.Now()
@@ -212,18 +247,19 @@ func (m *remoteManager) Stop(name string) error {
 	}
 	defer sshExec.Close()
 
-	dockerMgr, err := docker.NewManager(sshExec, ws.ServerHost, ws.Name)
+	ex, err := m.newExecutor(sshExec, ws)
 	if err != nil {
-		return fmt.Errorf("creating docker manager: %w", err)
+		return fmt.Errorf("creating executor: %w", err)
 	}
 
-	if err := dockerMgr.Down(context.Background()); err != nil {
-		return fmt.Errorf("stopping workspace containers: %w", err)
+	if err := ex.Down(context.Background()); err != nil {
+		return fmt.Errorf("stopping workspace: %w", err)
 	}
 
 	now := time.Now()
 	ws.Status = StatusStopped
 	ws.StoppedAt = &now
+	ws.ServePID = 0
 	return m.state.Put(ws)
 }
 
@@ -239,13 +275,13 @@ func (m *remoteManager) Destroy(name string) error {
 	}
 	defer sshExec.Close()
 
-	dockerMgr, err := docker.NewManager(sshExec, ws.ServerHost, ws.Name)
+	ex, err := m.newExecutor(sshExec, ws)
 	if err != nil {
-		return fmt.Errorf("creating docker manager: %w", err)
+		return fmt.Errorf("creating executor: %w", err)
 	}
 
-	if err := dockerMgr.Destroy(context.Background()); err != nil {
-		return fmt.Errorf("destroying workspace containers: %w", err)
+	if err := ex.Destroy(context.Background()); err != nil {
+		return fmt.Errorf("destroying workspace: %w", err)
 	}
 
 	return m.state.Delete(name)
@@ -302,6 +338,26 @@ func (m *remoteManager) SSH(name string) error {
 		}
 	}
 	return nil
+}
+
+func (m *remoteManager) Logs(name string, follow bool, stdout, stderr io.Writer) error {
+	ws, err := m.mustGet(name)
+	if err != nil {
+		return err
+	}
+
+	sshExec, err := newSSH()
+	if err != nil {
+		return err
+	}
+	defer sshExec.Close()
+
+	ex, err := m.newExecutor(sshExec, ws)
+	if err != nil {
+		return fmt.Errorf("creating executor: %w", err)
+	}
+
+	return ex.Logs(context.Background(), follow, stdout, stderr)
 }
 
 func (m *remoteManager) DockerStats(host string) (map[string]*ResourceUsage, error) {

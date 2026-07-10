@@ -87,5 +87,6 @@ nav:
   - Reference:
     - MCP Server: reference/mcp-server.md
     - Plugin API: reference/plugin-api.md
+    - Host-runtime Executor: reference/host-runtime-executor.md
     - Troubleshooting: reference/troubleshooting.md
     - FAQ: reference/faq.md

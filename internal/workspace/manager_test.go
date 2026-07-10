@@ -1,12 +1,36 @@
 package workspace
 
 import (
+	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/junixlabs/devbox/internal/config"
 )
+
+// recordingSSH implements ssh.Executor, recording every command it is asked
+// to run so tests can assert on what a reconstructed executor sends.
+type recordingSSH struct {
+	calls []string
+}
+
+func (r *recordingSSH) Run(_ context.Context, _ string, command string) (string, string, error) {
+	r.calls = append(r.calls, command)
+	return "", "", nil
+}
+
+func (r *recordingSSH) RunStream(_ context.Context, _ string, command string, _, _ io.Writer) error {
+	r.calls = append(r.calls, command)
+	return nil
+}
+
+func (r *recordingSSH) CopyTo(context.Context, string, string, string) error   { return nil }
+func (r *recordingSSH) CopyFrom(context.Context, string, string, string) error { return nil }
+func (r *recordingSSH) Close() error                                          { return nil }
 
 // --- State store tests ---
 
@@ -353,6 +377,42 @@ func TestManager_StartAlreadyRunning(t *testing.T) {
 	err := mgr.Start("running-ws")
 	if err != nil {
 		t.Fatalf("Start() error: %v", err)
+	}
+}
+
+// TestNewExecutor_PreservesEnvForHostRuntime regression-tests that
+// newExecutor (used to reconstruct a host-runtime executor on Start/Stop/
+// Destroy/Logs from persisted state) carries Env through — previously it
+// was dropped, so restarting a host workspace relaunched serve with no
+// environment at all.
+func TestNewExecutor_PreservesEnvForHostRuntime(t *testing.T) {
+	mgr := testManager(t)
+	ws := &Workspace{
+		Name:       "host-ws",
+		ServerHost: "box1",
+		Runtime:    config.RuntimeHost,
+		Serve:      "npm start",
+		Env:        map[string]string{"FOO": "bar"},
+	}
+
+	mock := &recordingSSH{}
+	ex, err := mgr.newExecutor(mock, ws)
+	if err != nil {
+		t.Fatalf("newExecutor() error: %v", err)
+	}
+
+	if err := ex.Up(context.Background()); err != nil {
+		t.Fatalf("Up() error: %v", err)
+	}
+
+	found := false
+	for _, c := range mock.calls {
+		if strings.Contains(c, "export FOO=") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected reconstructed host executor to include workspace Env, calls: %v", mock.calls)
 	}
 }
 

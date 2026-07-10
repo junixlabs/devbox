@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"io"
 	"strings"
 	"testing"
 	"time"
@@ -39,6 +40,8 @@ func (m *mockManager) Get(name string) (*workspace.Workspace, error) {
 }
 
 func (m *mockManager) SSH(name string) error { return nil }
+
+func (m *mockManager) Logs(name string, follow bool, stdout, stderr io.Writer) error { return nil }
 
 func (m *mockManager) DockerStats(host string) (map[string]*workspace.ResourceUsage, error) {
 	return nil, nil

@@ -15,6 +15,19 @@ repo: git@github.com:junixlabs/dodgeprint-source.git
 # Can also be overridden with: devbox up --branch feature/new-ui
 branch: main
 
+# Execution runtime: "docker" (default) or "host".
+# runtime: host runs setup/serve directly on the target server's shell instead
+# of inside a container — useful when a workspace needs native access
+# (Android emulator/KVM, USB devices) that Docker can't provide.
+# runtime: host
+
+# Commands to run once when provisioning (runtime: host only).
+# setup:
+#   - npm install
+
+# Long-lived command kept running for the workspace (required for runtime: host).
+# serve: npm start
+
 # Services to run alongside the app (Docker images)
 services:
   - mysql:8.0
