@@ -1,0 +1,16 @@
+name: expo
+version: "1.0.0"
+description: >-
+  Expo/React Native application. Serve with `expo start` (Metro bundler)
+  once inside the workspace — devbox does not yet execute setup/serve
+  commands automatically (host-runtime execution is tracked separately).
+  Requires the Android SDK on the host to run an Android emulator/device.
+services: []
+ports:
+  metro: 8081
+  expo: 19000
+env:
+  EXPO_PUBLIC_API_URL: "" # project-supplied: public API base URL exposed to the Expo app
+  EAS_TOKEN: "" # project-supplied: EAS auth token for build/update commands
+setup:
+  - npm ci
