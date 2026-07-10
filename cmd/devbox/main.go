@@ -543,6 +543,29 @@ func initCmd() *cobra.Command {
 			scanner := bufio.NewScanner(os.Stdin)
 			w := os.Stdout
 
+			templateFlag, _ := cmd.Flags().GetString("template")
+			if templateFlag != "" {
+				registry, err := tmpl.NewDefaultRegistry()
+				if err != nil {
+					return fmt.Errorf("devbox init: %w", err)
+				}
+				t, err := registry.Get(templateFlag)
+				if err != nil {
+					return fmt.Errorf("devbox init: %w", err)
+				}
+
+				dirName := filepath.Base(mustGetwd())
+				name := config.PromptString(w, scanner, "Project name", dirName)
+				server := config.PromptRequired(w, scanner, "Server")
+
+				cfg := t.ToDevboxConfig(name, server)
+				if err := config.WriteConfig(cfg, configPath); err != nil {
+					return fmt.Errorf("devbox init: %w", err)
+				}
+				fmt.Fprintf(w, "\nCreated %s from template %q\n", configPath, templateFlag)
+				return nil
+			}
+
 			fromCompose, _ := cmd.Flags().GetString("from-compose")
 			if fromCompose != "" {
 				cfg, err := config.ConvertFromCompose(fromCompose)
@@ -603,6 +626,7 @@ func initCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().String("from-compose", "", "Convert from an existing docker-compose.yml")
+	cmd.Flags().String("template", "", "Create devbox.yaml from a template (e.g. laravel, nextjs, expo)")
 	return cmd
 }
 

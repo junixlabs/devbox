@@ -138,7 +138,7 @@ func TestLoadBuiltins(t *testing.T) {
 	for _, tmpl := range templates {
 		names[tmpl.Name] = true
 	}
-	for _, expected := range []string{"laravel", "rails", "nextjs", "go", "python", "django", "rust"} {
+	for _, expected := range []string{"laravel", "rails", "nextjs", "go", "python", "django", "rust", "expo"} {
 		if !names[expected] {
 			t.Errorf("expected built-in template %q not found", expected)
 		}
