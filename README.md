@@ -19,6 +19,33 @@ No cloud lock-in, no Kubernetes, no DevOps. Just Docker for isolation and Tailsc
 
 devbox takes any Linux box — an old desktop, a mini-PC, a cheap VPS — and makes it a fully provisioned development environment you can reach securely from anywhere. Point it at a project, run `devbox up`, and you get isolated containers, an HTTPS URL, and SSH access wired through your private Tailscale network.
 
+## How it works
+
+```mermaid
+flowchart LR
+    Dev["👩‍💻 Your machine<br/>devbox up"]
+
+    subgraph TS["🔒 Tailscale private network"]
+        direction TB
+        Pool{{"Server pool<br/>auto-selects least-loaded"}}
+        Box["🖥️ Server e.g. dev1"]
+        Docker["📦 Docker workspace<br/>app + service containers"]
+        Host["⚙️ Host workspace<br/>bare-metal · Expo / Metro"]
+        Pool --> Box
+        Box --> Docker
+        Box --> Host
+    end
+
+    Dev -->|reads devbox.yaml| Pool
+    Editor["🧑‍💻 Editor / SSH"] -->|HTTPS · SSH| Docker
+    Phone["📱 Phone · Expo Go"] -->|exp:// over tailnet or LAN| Host
+```
+
+1. **`devbox up`** reads `devbox.yaml` and picks a server from your pool (or the one you name).
+2. It provisions a **workspace** on that server — **Docker containers** (default, isolated) or a **bare-metal host runtime** (for mobile / native tooling).
+3. Ports are exposed over your **private Tailscale network** — automatic HTTPS + MagicDNS, nothing public.
+4. You connect: your **editor or SSH** to the workspace; a **phone** to an Expo/Metro mobile preview.
+
 ## Why devbox?
 
 | | Managed | Self-hosted | Free | Simple |
