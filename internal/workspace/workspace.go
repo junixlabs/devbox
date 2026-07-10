@@ -93,6 +93,11 @@ type Manager interface {
 	// workspaces never reach this path (callers route by cfg.Runtime).
 	Refresh(params RefreshParams) (*Workspace, error)
 
+	// BuildEAS runs an EAS Android build for an existing host-runtime
+	// workspace and returns the installable artifact URL. Only host-runtime
+	// (Expo) workspaces support it.
+	BuildEAS(name, profile string) (string, error)
+
 	// Stop stops a running workspace without destroying it.
 	Stop(name string) error
 

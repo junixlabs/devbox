@@ -403,6 +403,22 @@ func upCmd(wm workspace.Manager) *cobra.Command {
 
 			tsStatus, _ := tm.Status()
 
+			// EAS build mode (A6): produce an installable Android artifact
+			// instead of relying on Metro fast-refresh. Escalation point for
+			// native changes that fast-refresh can't serve.
+			buildMode, _ := cmd.Flags().GetBool("build")
+			installURL := ""
+			if buildMode {
+				profile, _ := cmd.Flags().GetString("profile")
+				bspin := ui.StartSpinner("Running EAS Android build (this can take several minutes)...")
+				installURL, err = wm.BuildEAS(ws.Name, profile)
+				if err != nil {
+					ui.StopSpinner(bspin, false)
+					return fmt.Errorf("devbox up --build: %w", err)
+				}
+				ui.StopSpinner(bspin, true)
+			}
+
 			// Machine-readable output for orchestrators (Forge): structured
 			// preview result on stdout instead of the human block.
 			if jsonOut, _ := cmd.Flags().GetBool("json"); jsonOut {
@@ -418,7 +434,23 @@ func upCmd(wm workspace.Manager) *cobra.Command {
 				if err != nil {
 					return fmt.Errorf("devbox up: %w", err)
 				}
+				if buildMode {
+					// Build output flows through the same result shape: the
+					// installable artifact URL becomes the connect target.
+					res.Mode = "build"
+					res.ConnectURL = installURL
+					qr, qerr := preview.QRDataURI(installURL)
+					if qerr != nil {
+						return fmt.Errorf("devbox up: %w", qerr)
+					}
+					res.QR = qr
+				}
 				return printJSON(res)
+			}
+
+			if buildMode {
+				fmt.Printf("\n  Android build ready: %s\n\n", installURL)
+				return nil
 			}
 
 			url := ""
@@ -434,6 +466,8 @@ func upCmd(wm workspace.Manager) *cobra.Command {
 	cmd.Flags().String("server", "", "Target server name from pool (or hostname)")
 	cmd.Flags().String("template", "", "Create workspace from a template (e.g. laravel, nextjs)")
 	cmd.Flags().Bool("json", false, "Emit a machine-readable preview result (status, connectUrl, qr, mode) on stdout instead of the human summary")
+	cmd.Flags().Bool("build", false, "Run an EAS Android build for the workspace and return the installable artifact URL (host-runtime/Expo only)")
+	cmd.Flags().String("profile", "preview", "EAS build profile to use with --build")
 	return cmd
 }
 

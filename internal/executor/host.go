@@ -141,6 +141,53 @@ func (h *hostExecutor) Restart(ctx context.Context) error {
 	return h.startServe(ctx)
 }
 
+// validProfile guards the EAS build profile name, which is interpolated into
+// a shell command.
+var validProfile = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
+
+// BuildAndroid runs an EAS Android build in the workspace's checked-out source
+// and returns the installable artifact URL. It runs `eas build` non-interactively
+// (authenticated by EAS_TOKEN from the workspace env) with --wait so the cloud
+// build completes, and --json so the artifact URL is machine-readable.
+//
+// NOTE: live EAS execution is not exercised in unit tests (it needs a real EAS
+// account, token, and eas.json profile); the artifact-URL parsing is covered by
+// parseEASBuildURL's tests. iOS builds require a macOS host and are out of scope.
+func (h *hostExecutor) BuildAndroid(ctx context.Context, profile string) (string, error) {
+	if profile == "" {
+		profile = "preview"
+	}
+	if !validProfile.MatchString(profile) {
+		return "", devboxerr.NewConfigError(
+			fmt.Sprintf("invalid EAS build profile %q", profile),
+			"Profile names may contain only letters, digits, dots, underscores, and hyphens",
+			nil,
+		)
+	}
+	exports := h.exportPrefix()
+	cmd := fmt.Sprintf(
+		"cd %s && %snpx --yes eas-cli build --platform android --profile %s --non-interactive --json --wait",
+		h.srcDir, exports, profile,
+	)
+	stdout, stderr, err := h.ssh.Run(ctx, h.host, cmd)
+	if err != nil {
+		return "", devboxerr.NewConnectionError(
+			fmt.Sprintf("eas build failed for %s on %s\nstderr: %s", h.name, h.host, stderr),
+			"Ensure EAS_TOKEN is set in the workspace env and eas.json defines the build profile",
+			err,
+		)
+	}
+	url := parseEASBuildURL([]byte(stdout))
+	if url == "" {
+		return "", devboxerr.NewConfigError(
+			fmt.Sprintf("eas build for %s produced no installable artifact URL", h.name),
+			"Check the EAS build profile produces an Android artifact (internal distribution)",
+			nil,
+		)
+	}
+	return url, nil
+}
+
 // startServe launches the serve command detached via setsid, redirecting
 // output to logFile and recording the PID in pidFile.
 //
