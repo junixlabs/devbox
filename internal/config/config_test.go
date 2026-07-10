@@ -225,3 +225,95 @@ func TestDefaultConfigFile(t *testing.T) {
 		t.Errorf("DefaultConfigFile = %q, want %q", DefaultConfigFile, "devbox.yaml")
 	}
 }
+
+func TestLoad_RuntimeDefaultsToDocker(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "devbox.yaml")
+	os.WriteFile(path, []byte("name: p\nserver: s1\n"), 0644)
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if cfg.Runtime != RuntimeDocker {
+		t.Errorf("Runtime = %q, want %q", cfg.Runtime, RuntimeDocker)
+	}
+}
+
+func TestLoad_RuntimeHost(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "devbox.yaml")
+	os.WriteFile(path, []byte("name: p\nserver: s1\nruntime: host\nserve: npm start\n"), 0644)
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if cfg.Runtime != RuntimeHost {
+		t.Errorf("Runtime = %q, want %q", cfg.Runtime, RuntimeHost)
+	}
+	if cfg.Serve != "npm start" {
+		t.Errorf("Serve = %q, want %q", cfg.Serve, "npm start")
+	}
+}
+
+func TestLoad_InvalidRuntime(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "devbox.yaml")
+	os.WriteFile(path, []byte("name: p\nserver: s1\nruntime: vm\n"), 0644)
+
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error for invalid runtime")
+	}
+
+	var ce *devboxerr.ConfigError
+	if !errors.As(err, &ce) {
+		t.Fatalf("expected ConfigError, got %T", err)
+	}
+}
+
+func TestValidateForUp_HostRequiresServe(t *testing.T) {
+	cfg := &DevboxConfig{Name: "p", Server: "s1", Runtime: RuntimeHost}
+
+	err := cfg.ValidateForUp(false)
+	if err == nil {
+		t.Fatal("expected error when runtime: host has no serve command")
+	}
+
+	var ce *devboxerr.ConfigError
+	if !errors.As(err, &ce) {
+		t.Fatalf("expected ConfigError, got %T", err)
+	}
+	if !strings.Contains(err.Error(), "'serve' is required") {
+		t.Errorf("error = %q, want it to contain 'serve' is required", err.Error())
+	}
+}
+
+func TestValidateForUp_HostWithServeOK(t *testing.T) {
+	cfg := &DevboxConfig{Name: "p", Server: "s1", Runtime: RuntimeHost, Serve: "npm start"}
+
+	if err := cfg.ValidateForUp(false); err != nil {
+		t.Fatalf("ValidateForUp() unexpected error: %v", err)
+	}
+}
+
+func TestValidateForUp_HostWithResourcesWarnsNotRejects(t *testing.T) {
+	cfg := &DevboxConfig{
+		Name: "p", Server: "s1", Runtime: RuntimeHost, Serve: "npm start",
+		Resources: &Resources{CPUs: 2},
+	}
+
+	// Should not reject — resources are just unenforced (warned) under host runtime.
+	if err := cfg.ValidateForUp(false); err != nil {
+		t.Fatalf("ValidateForUp() unexpected error: %v", err)
+	}
+}
+
+func TestValidateForUp_DockerRuntimeUnaffected(t *testing.T) {
+	cfg := &DevboxConfig{Name: "p", Server: "s1"}
+
+	if err := cfg.ValidateForUp(false); err != nil {
+		t.Fatalf("ValidateForUp() unexpected error: %v", err)
+	}
+}

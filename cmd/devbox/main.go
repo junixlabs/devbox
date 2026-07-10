@@ -69,6 +69,7 @@ func main() {
 	rootCmd.AddCommand(listCmd(wm))
 	rootCmd.AddCommand(destroyCmd(wm))
 	rootCmd.AddCommand(sshCmd(wm))
+	rootCmd.AddCommand(logsCmd(wm))
 	rootCmd.AddCommand(doctorCmd())
 	rootCmd.AddCommand(statsCmd())
 	rootCmd.AddCommand(serverCmd())
@@ -248,6 +249,9 @@ func upCmd(wm workspace.Manager) *cobra.Command {
 				Server:    cfg.Server,
 				Repo:      cfg.Repo,
 				Branch:    cfg.Branch,
+				Runtime:   cfg.Runtime,
+				Setup:     cfg.Setup,
+				Serve:     cfg.Serve,
 				Services:  cfg.Services,
 				Ports:     cfg.Ports,
 				Env:       cfg.Env,
@@ -526,6 +530,26 @@ func sshCmd(wm workspace.Manager) *cobra.Command {
 			return nil
 		},
 	}
+}
+
+func logsCmd(wm workspace.Manager) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "logs [workspace]",
+		Short: "View workspace logs",
+		Long:  "Stream or dump a workspace's serve/container logs.\nUse -f to follow the log output.",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			name := args[0]
+			follow, _ := cmd.Flags().GetBool("follow")
+
+			if err := wm.Logs(name, follow, os.Stdout, os.Stderr); err != nil {
+				return fmt.Errorf("devbox logs: %w", err)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().BoolP("follow", "f", false, "Follow log output")
+	return cmd
 }
 
 func initCmd() *cobra.Command {

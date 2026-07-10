@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"fmt"
+	"io"
 	"path/filepath"
 	"strings"
 	"time"
@@ -28,6 +29,10 @@ type Workspace struct {
 	Status     Status            `json:"status"`
 	ServerHost string            `json:"server_host"`
 	Repo       string            `json:"repo"`
+	Runtime    string            `json:"runtime,omitempty"`
+	Setup      []string          `json:"setup,omitempty"`
+	Serve      string            `json:"serve,omitempty"`
+	ServePID   int               `json:"serve_pid,omitempty"`
 	Ports      map[string]int    `json:"ports"`
 	Env        map[string]string `json:"env"`
 	Services   []string          `json:"services"`
@@ -44,6 +49,9 @@ type CreateParams struct {
 	Server    string
 	Repo      string
 	Branch    string
+	Runtime   string
+	Setup     []string
+	Serve     string
 	Services  []string
 	Ports     map[string]int
 	Env       map[string]string
@@ -78,6 +86,9 @@ type Manager interface {
 
 	// SSH opens an interactive SSH session into a workspace.
 	SSH(name string) error
+
+	// Logs streams (or dumps) a workspace's serve/container logs.
+	Logs(name string, follow bool, stdout, stderr io.Writer) error
 
 	// DockerStats returns live resource usage for all containers on a host.
 	DockerStats(host string) (map[string]*ResourceUsage, error)

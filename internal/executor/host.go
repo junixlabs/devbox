@@ -1,0 +1,240 @@
+package executor
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"regexp"
+	"sort"
+	"strconv"
+	"strings"
+
+	"github.com/junixlabs/devbox/internal/config"
+	devboxerr "github.com/junixlabs/devbox/internal/errors"
+	"github.com/junixlabs/devbox/internal/ssh"
+)
+
+// validEnvKey matches safe shell environment variable names.
+var validEnvKey = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
+
+// errNoPID indicates the serve process has no PID file recorded (e.g. it was
+// never started, or was already stopped) — as opposed to an error reaching
+// the host at all, which callers must not treat the same way.
+var errNoPID = errors.New("no serve PID recorded")
+
+// hostExecutor runs setup + a long-lived serve process directly on the
+// remote host's shell (no container). Because ssh.Executor.Run is one-shot,
+// the serve process is launched detached (setsid + redirected log file) so
+// it survives the SSH session ending, with its PID tracked in a PID file.
+type hostExecutor struct {
+	ssh     ssh.Executor
+	host    string
+	name    string
+	workdir string
+	srcDir  string
+	logFile string
+	pidFile string
+	setup   []string
+	serve   string
+	env     map[string]string
+}
+
+func newHostExecutor(sshExec ssh.Executor, cfg *config.DevboxConfig, host, name string) (Executor, error) {
+	workdir := cfg.WorkspacesRoot + "/" + name
+	return &hostExecutor{
+		ssh:     sshExec,
+		host:    host,
+		name:    name,
+		workdir: workdir,
+		srcDir:  workdir + "/src",
+		logFile: workdir + "/serve.log",
+		pidFile: workdir + "/serve.pid",
+		setup:   cfg.Setup,
+		serve:   cfg.Serve,
+		env:     cfg.Env,
+	}, nil
+}
+
+// PID reads the PID of the running serve process from its PID file. Callers
+// (workspace.Manager) can track it in workspace state for display purposes.
+//
+// The read command always exits 0 (`|| true`) so a missing PID file — the
+// normal case when the workspace was never started or is already stopped —
+// surfaces as errNoPID, not a transport error. A non-nil error that is NOT
+// errNoPID means the host could not be reached at all, and callers must
+// propagate it rather than treating it as "not running".
+func (h *hostExecutor) PID(ctx context.Context) (int, error) {
+	stdout, _, err := h.ssh.Run(ctx, h.host, fmt.Sprintf("cat %s 2>/dev/null || true", h.pidFile))
+	if err != nil {
+		return 0, err
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(stdout))
+	if err != nil {
+		return 0, errNoPID
+	}
+	return pid, nil
+}
+
+func (h *hostExecutor) Deploy(ctx context.Context) error {
+	if h.serve == "" {
+		return devboxerr.NewConfigError(
+			fmt.Sprintf("workspace %q has no 'serve' command configured", h.name),
+			"Add 'serve: <long-running command>' to devbox.yaml",
+			nil,
+		)
+	}
+
+	if _, _, err := h.ssh.Run(ctx, h.host, fmt.Sprintf("mkdir -p %s", h.srcDir)); err != nil {
+		return devboxerr.NewConnectionError(
+			fmt.Sprintf("failed to create workspace directory %s on %s", h.workdir, h.host),
+			fmt.Sprintf("Check SSH access: ssh %s", h.host),
+			err,
+		)
+	}
+
+	exports := h.exportPrefix()
+	for _, cmd := range h.setup {
+		full := fmt.Sprintf("cd %s && %s%s", h.srcDir, exports, cmd)
+		if _, stderr, err := h.ssh.Run(ctx, h.host, full); err != nil {
+			return devboxerr.NewConnectionError(
+				fmt.Sprintf("setup command %q failed on %s\nstderr: %s", cmd, h.host, stderr),
+				"Check the setup command in devbox.yaml runs cleanly on the target host",
+				err,
+			)
+		}
+	}
+
+	return h.startServe(ctx)
+}
+
+func (h *hostExecutor) Up(ctx context.Context) error {
+	alive, err := h.isAlive(ctx)
+	if err != nil {
+		return err
+	}
+	if alive {
+		return nil // already running
+	}
+	return h.startServe(ctx)
+}
+
+// startServe launches the serve command detached via setsid, redirecting
+// output to logFile and recording the PID in pidFile.
+func (h *hostExecutor) startServe(ctx context.Context) error {
+	exports := h.exportPrefix()
+	launch := fmt.Sprintf(
+		"cd %s && setsid bash -c '%s exec %s' >%s 2>&1 </dev/null & echo $! >%s",
+		h.srcDir, exports, h.serve, h.logFile, h.pidFile,
+	)
+	if _, stderr, err := h.ssh.Run(ctx, h.host, launch); err != nil {
+		return devboxerr.NewConnectionError(
+			fmt.Sprintf("failed to start serve process for %s on %s\nstderr: %s", h.name, h.host, stderr),
+			fmt.Sprintf("Check the 'serve' command in devbox.yaml runs on %s", h.host),
+			err,
+		)
+	}
+	return nil
+}
+
+func (h *hostExecutor) Down(ctx context.Context) error {
+	pid, err := h.PID(ctx)
+	if errors.Is(err, errNoPID) {
+		return nil // not running — nothing to stop
+	}
+	if err != nil {
+		return devboxerr.NewConnectionError(
+			fmt.Sprintf("failed to check serve process state for %s on %s", h.name, h.host),
+			fmt.Sprintf("Check SSH connectivity: ssh %s", h.host),
+			err,
+		)
+	}
+
+	// setsid makes the serve process its own process group leader (PID == PGID),
+	// so killing the negative PID terminates the whole process tree.
+	killCmd := fmt.Sprintf("kill -TERM -- -%d 2>/dev/null; rm -f %s", pid, h.pidFile)
+	if _, _, err := h.ssh.Run(ctx, h.host, killCmd); err != nil {
+		return devboxerr.NewConnectionError(
+			fmt.Sprintf("failed to stop serve process (pid %d) for %s on %s", pid, h.name, h.host),
+			fmt.Sprintf("Check SSH access: ssh %s", h.host),
+			err,
+		)
+	}
+	return nil
+}
+
+func (h *hostExecutor) Logs(ctx context.Context, follow bool, stdout, stderr io.Writer) error {
+	var cmd string
+	if follow {
+		cmd = fmt.Sprintf("tail -n +1 -f %s", h.logFile)
+	} else {
+		cmd = fmt.Sprintf("cat %s", h.logFile)
+	}
+	if err := h.ssh.RunStream(ctx, h.host, cmd, stdout, stderr); err != nil {
+		return devboxerr.NewConnectionError(
+			fmt.Sprintf("failed to read serve logs for %s on %s", h.name, h.host),
+			"Check that the workspace has been deployed: devbox up",
+			err,
+		)
+	}
+	return nil
+}
+
+func (h *hostExecutor) Destroy(ctx context.Context) error {
+	if err := h.Down(ctx); err != nil {
+		return err
+	}
+	if _, _, err := h.ssh.Run(ctx, h.host, fmt.Sprintf("rm -rf %s", h.workdir)); err != nil {
+		return devboxerr.NewConnectionError(
+			fmt.Sprintf("failed to remove workspace directory %s on %s", h.workdir, h.host),
+			fmt.Sprintf("Check SSH access: ssh %s", h.host),
+			err,
+		)
+	}
+	return nil
+}
+
+// isAlive checks whether the serve process is still running via kill -0.
+func (h *hostExecutor) isAlive(ctx context.Context) (bool, error) {
+	pid, err := h.PID(ctx)
+	if errors.Is(err, errNoPID) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	_, _, err = h.ssh.Run(ctx, h.host, fmt.Sprintf("kill -0 %d 2>/dev/null", pid))
+	return err == nil, nil
+}
+
+// exportPrefix builds a shell-safe "export K=V; ..." prefix for setup/serve
+// commands, sorted for deterministic output. Keys are validated; values are
+// single-quote shell-escaped.
+func (h *hostExecutor) exportPrefix() string {
+	if len(h.env) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(h.env))
+	for k := range h.env {
+		if validEnvKey.MatchString(k) {
+			keys = append(keys, k)
+		}
+	}
+	sort.Strings(keys)
+
+	var b strings.Builder
+	for _, k := range keys {
+		b.WriteString("export ")
+		b.WriteString(k)
+		b.WriteString("=")
+		b.WriteString(shellQuote(h.env[k]))
+		b.WriteString("; ")
+	}
+	return b.String()
+}
+
+// shellQuote wraps a string in single quotes, safely escaping any embedded
+// single quotes for use in a POSIX shell command.
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'"'"'`) + "'"
+}

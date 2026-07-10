@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -83,12 +84,21 @@ type PortRangeConfig struct {
 	Max int `yaml:"max"`
 }
 
+// RuntimeDocker runs the workspace inside Docker Compose (the default).
+const RuntimeDocker = "docker"
+
+// RuntimeHost runs the workspace directly on the host shell, no container.
+const RuntimeHost = "host"
+
 // DevboxConfig represents the per-project devbox.yaml configuration.
 type DevboxConfig struct {
 	Name           string            `yaml:"name"`
 	Server         string            `yaml:"server"`
 	Repo           string            `yaml:"repo"`
 	Branch         string            `yaml:"branch,omitempty"`
+	Runtime        string            `yaml:"runtime,omitempty"`
+	Setup          []string          `yaml:"setup,omitempty"`
+	Serve          string            `yaml:"serve,omitempty"`
 	Services       []string          `yaml:"services,omitempty"`
 	Ports          map[string]int    `yaml:"ports,omitempty"`
 	PortRange      *PortRangeConfig  `yaml:"port_range,omitempty"`
@@ -142,6 +152,16 @@ func Load(path string) (*DevboxConfig, error) {
 		}
 	}
 
+	if cfg.Runtime == "" {
+		cfg.Runtime = RuntimeDocker
+	} else if cfg.Runtime != RuntimeDocker && cfg.Runtime != RuntimeHost {
+		return nil, devboxerr.NewConfigError(
+			fmt.Sprintf("config file %s: 'runtime' must be %q or %q, got %q", path, RuntimeDocker, RuntimeHost, cfg.Runtime),
+			"Set runtime: docker (default) or runtime: host",
+			nil,
+		)
+	}
+
 	if cfg.WorkspacesRoot == "" {
 		cfg.WorkspacesRoot = DefaultWorkspacesRoot
 	}
@@ -176,6 +196,20 @@ func (c *DevboxConfig) ValidateForUp(poolConfigured bool) error {
 			nil,
 		)
 	}
+
+	if c.Runtime == RuntimeHost {
+		if c.Serve == "" {
+			return devboxerr.NewConfigError(
+				"'serve' is required when runtime: host",
+				"Add 'serve: <long-running command>' to devbox.yaml (e.g. 'npm start')",
+				nil,
+			)
+		}
+		if c.Resources != nil && !c.Resources.IsZero() {
+			slog.Warn("resources limits are not enforced under runtime: host (no container to apply cgroup/ulimit limits to)")
+		}
+	}
+
 	return nil
 }
 
