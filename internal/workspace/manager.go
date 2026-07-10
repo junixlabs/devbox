@@ -27,6 +27,10 @@ var validBranch = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._/-]*$`)
 // operations on a remote server, with local state persistence.
 type remoteManager struct {
 	state *stateStore
+
+	// sshFactory overrides how SSH executors are created; nil means use
+	// newSSH(). Tests set this to inject a recordingSSH without a live host.
+	sshFactory func() (devboxssh.Executor, error)
 }
 
 // NewManager creates a workspace Manager with local state at ~/.devbox/state.json.
@@ -52,6 +56,15 @@ func newSSH() (devboxssh.Executor, error) {
 		}
 	}
 	return sshExec, nil
+}
+
+// newSSHExecutor returns the manager's SSH executor factory, or newSSH if
+// none was injected.
+func (m *remoteManager) newSSHExecutor() (devboxssh.Executor, error) {
+	if m.sshFactory != nil {
+		return m.sshFactory()
+	}
+	return newSSH()
 }
 
 func (m *remoteManager) Create(params CreateParams) (*Workspace, error) {
@@ -81,7 +94,7 @@ func (m *remoteManager) Create(params CreateParams) (*Workspace, error) {
 		}
 	}
 
-	sshExec, err := newSSH()
+	sshExec, err := m.newSSHExecutor()
 	if err != nil {
 		return nil, err
 	}
@@ -203,7 +216,7 @@ func (m *remoteManager) Start(name string) error {
 		return nil // already running
 	}
 
-	sshExec, err := newSSH()
+	sshExec, err := m.newSSHExecutor()
 	if err != nil {
 		return err
 	}
@@ -231,6 +244,202 @@ func (m *remoteManager) Start(name string) error {
 	return m.state.Put(ws)
 }
 
+// nativeRebuildFiles are exact repo-relative paths whose change requires a
+// full rebuild (re-run setup + restart serve) rather than a fast-refresh —
+// per the parent epic's locked escalation rule (native deps / app config).
+var nativeRebuildFiles = map[string]bool{
+	"package.json":      true,
+	"package-lock.json": true,
+	"yarn.lock":         true,
+	"pnpm-lock.yaml":    true,
+	"app.json":          true,
+	"app.config.js":     true,
+	"app.config.ts":     true,
+}
+
+// nativeRebuildPrefixes are repo-relative path prefixes whose change also
+// requires a rebuild (native platform code / config plugins).
+var nativeRebuildPrefixes = []string{"plugins/", "android/", "ios/"}
+
+// needsRebuild reports whether any changed path requires a rebuild rather
+// than a fast-refresh: Metro's own file watcher hot-reloads plain JS, but a
+// native dependency, lockfile, or platform-code change needs setup re-run
+// and a serve restart to take effect.
+func needsRebuild(files []string) bool {
+	for _, f := range files {
+		if nativeRebuildFiles[f] {
+			return true
+		}
+		for _, prefix := range nativeRebuildPrefixes {
+			if strings.HasPrefix(f, prefix) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// gitFetchCheckoutCmd builds the command that fetches and force-checks-out
+// the requested branch in srcDir. It fetches the branch's ref directly
+// (rather than relying on a pre-existing local tracking branch) so it works
+// even for a branch not present in the original --single-branch clone, then
+// hard-resets to it so a dirty/diverged tree doesn't block the checkout.
+func gitFetchCheckoutCmd(srcDir, branch string) string {
+	return fmt.Sprintf(
+		"git -C %s fetch origin %s && git -C %s checkout -B %s FETCH_HEAD && git -C %s reset --hard FETCH_HEAD",
+		srcDir, branch, srcDir, branch, srcDir,
+	)
+}
+
+// gitRevParseHeadCmd captures the current HEAD commit before checkout, so
+// Refresh can later diff against it. It always exits 0 (`|| echo ”`) so a
+// missing/corrupt repo surfaces as an empty rev rather than a transport
+// error — callers must treat an empty rev as "diff unknown, assume rebuild".
+func gitRevParseHeadCmd(srcDir string) string {
+	return fmt.Sprintf("git -C %s rev-parse HEAD 2>/dev/null || echo ''", srcDir)
+}
+
+// gitDiffNamesCmd lists the paths changed between oldRev and the
+// post-checkout HEAD, one per line.
+func gitDiffNamesCmd(srcDir, oldRev string) string {
+	return fmt.Sprintf("git -C %s diff --name-only %s..HEAD", srcDir, oldRev)
+}
+
+// Refresh syncs an existing host-runtime workspace to params.Branch in
+// place: git fetch+checkout in its srcDir, then either a fast-refresh
+// (just ensure the serve process is alive — Metro hot-reloads the checked
+// out JS itself) or a rebuild (re-run setup + restart serve), depending on
+// whether the diff touches a native/lockfile path. Setup/Serve/Env are read
+// fresh from params (i.e. devbox.yaml), not from persisted workspace state,
+// so config changes take effect on re-run.
+func (m *remoteManager) Refresh(params RefreshParams) (*Workspace, error) {
+	ws, err := m.mustGet(params.Name)
+	if err != nil {
+		return nil, err
+	}
+	if ws.Runtime != config.RuntimeHost {
+		return nil, &WorkspaceError{
+			Message:    fmt.Sprintf("workspace %q is not a host-runtime workspace and cannot be refreshed in place", ws.Name),
+			Suggestion: "Refresh only applies to runtime: host workspaces",
+		}
+	}
+	branch := params.Branch
+	if branch == "" {
+		branch = ws.Branch
+	}
+	if branch == "" {
+		// Mirrors Create's clone default: a workspace created with no
+		// explicit branch has ws.Branch == "" persisted (even though its
+		// initial clone used "main"), so Refresh must default the same way
+		// or every no-branch workspace would fail branch validation here.
+		branch = "main"
+	}
+	if !validBranch.MatchString(branch) {
+		return nil, &WorkspaceError{
+			Message:    fmt.Sprintf("invalid branch name %q", branch),
+			Suggestion: "Branch names must contain only alphanumeric characters, hyphens, underscores, dots, and slashes",
+		}
+	}
+
+	sshExec, err := m.newSSHExecutor()
+	if err != nil {
+		return nil, err
+	}
+	defer sshExec.Close()
+
+	ctx := context.Background()
+	srcDir := docker.WorkspaceBaseDir + "/" + ws.Name + "/src"
+
+	oldRevOut, _, _ := sshExec.Run(ctx, ws.ServerHost, gitRevParseHeadCmd(srcDir))
+	oldRev := strings.TrimSpace(oldRevOut)
+
+	if _, stderr, err := sshExec.Run(ctx, ws.ServerHost, gitFetchCheckoutCmd(srcDir, branch)); err != nil {
+		return nil, &WorkspaceError{
+			Message:    fmt.Sprintf("failed to sync branch %q for workspace %q on %s\nstderr: %s", branch, ws.Name, ws.ServerHost, stderr),
+			Suggestion: "Check the branch exists on the remote and SSH access to the server",
+			Err:        err,
+		}
+	}
+
+	// An unknown pre-checkout rev (first-ever refresh against a corrupt/
+	// missing repo) or a failed diff means we can't tell what changed —
+	// rebuild is the safe superset in that case.
+	rebuild := oldRev == ""
+	if !rebuild {
+		diffOut, _, diffErr := sshExec.Run(ctx, ws.ServerHost, gitDiffNamesCmd(srcDir, oldRev))
+		if diffErr != nil {
+			rebuild = true
+		} else {
+			var files []string
+			for _, line := range strings.Split(diffOut, "\n") {
+				if line = strings.TrimSpace(line); line != "" {
+					files = append(files, line)
+				}
+			}
+			rebuild = needsRebuild(files)
+		}
+	}
+
+	cfg := &config.DevboxConfig{
+		Name:           ws.Name,
+		Server:         ws.ServerHost,
+		Runtime:        config.RuntimeHost,
+		Setup:          params.Setup,
+		Serve:          params.Serve,
+		Env:            params.Env,
+		WorkspacesRoot: docker.WorkspaceBaseDir,
+	}
+	ex, err := executor.New(sshExec, cfg, ws.ServerHost, ws.Name)
+	if err != nil {
+		return nil, fmt.Errorf("creating executor: %w", err)
+	}
+
+	refresher, isRefresher := ex.(executor.Refresher)
+	switch {
+	case isRefresher && rebuild:
+		if err := refresher.RunSetup(ctx); err != nil {
+			return nil, fmt.Errorf("re-running setup: %w", err)
+		}
+		if err := refresher.Restart(ctx); err != nil {
+			return nil, fmt.Errorf("restarting serve process: %w", err)
+		}
+	case isRefresher:
+		// Fast-refresh: Metro's own file watcher picks up the checked-out
+		// JS changes; just make sure the serve process is still alive.
+		if err := ex.Up(ctx); err != nil {
+			return nil, fmt.Errorf("ensuring serve process is running: %w", err)
+		}
+	default:
+		// Defensive fallback for an executor that doesn't support in-place
+		// refresh (shouldn't happen for a host-runtime workspace).
+		if err := ex.Down(ctx); err != nil {
+			return nil, fmt.Errorf("stopping workspace: %w", err)
+		}
+		if err := ex.Up(ctx); err != nil {
+			return nil, fmt.Errorf("starting workspace: %w", err)
+		}
+	}
+
+	now := time.Now()
+	ws.Branch = branch
+	ws.Setup = params.Setup
+	ws.Serve = params.Serve
+	ws.Env = params.Env
+	ws.Status = StatusRunning
+	ws.StartedAt = &now
+	ws.StoppedAt = nil
+	if pr, ok := ex.(executor.PIDReporter); ok {
+		if pid, err := pr.PID(ctx); err == nil {
+			ws.ServePID = pid
+		}
+	}
+
+	if err := m.state.Put(ws); err != nil {
+		return nil, fmt.Errorf("saving workspace state: %w", err)
+	}
+	return ws, nil
+}
+
 func (m *remoteManager) Stop(name string) error {
 	ws, err := m.mustGet(name)
 	if err != nil {
@@ -241,7 +450,7 @@ func (m *remoteManager) Stop(name string) error {
 		return nil // already stopped
 	}
 
-	sshExec, err := newSSH()
+	sshExec, err := m.newSSHExecutor()
 	if err != nil {
 		return err
 	}
@@ -269,7 +478,7 @@ func (m *remoteManager) Destroy(name string) error {
 		return err
 	}
 
-	sshExec, err := newSSH()
+	sshExec, err := m.newSSHExecutor()
 	if err != nil {
 		return err
 	}
@@ -346,7 +555,7 @@ func (m *remoteManager) Logs(name string, follow bool, stdout, stderr io.Writer)
 		return err
 	}
 
-	sshExec, err := newSSH()
+	sshExec, err := m.newSSHExecutor()
 	if err != nil {
 		return err
 	}
@@ -361,7 +570,7 @@ func (m *remoteManager) Logs(name string, follow bool, stdout, stderr io.Writer)
 }
 
 func (m *remoteManager) DockerStats(host string) (map[string]*ResourceUsage, error) {
-	sshExec, err := newSSH()
+	sshExec, err := m.newSSHExecutor()
 	if err != nil {
 		return nil, err
 	}
@@ -376,7 +585,7 @@ func (m *remoteManager) DockerStats(host string) (map[string]*ResourceUsage, err
 }
 
 func (m *remoteManager) ServerResources(host string) (*ServerResourceInfo, error) {
-	sshExec, err := newSSH()
+	sshExec, err := m.newSSHExecutor()
 	if err != nil {
 		return nil, err
 	}

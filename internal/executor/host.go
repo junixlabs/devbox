@@ -93,6 +93,19 @@ func (h *hostExecutor) Deploy(ctx context.Context) error {
 		)
 	}
 
+	if err := h.RunSetup(ctx); err != nil {
+		return err
+	}
+
+	return h.startServe(ctx)
+}
+
+// RunSetup (re-)runs the configured setup commands (e.g. a dependency
+// install) in srcDir, without starting the serve process. It is safe to call
+// again on an already-deployed workspace — the setup commands themselves
+// (npm ci, expo install, etc.) are idempotent — which is what lets Refresh
+// re-run it after a lockfile change without a full Destroy+Deploy cycle.
+func (h *hostExecutor) RunSetup(ctx context.Context) error {
 	exports := h.exportPrefix()
 	for _, cmd := range h.setup {
 		full := fmt.Sprintf("cd %s && %s%s", h.srcDir, exports, cmd)
@@ -104,8 +117,7 @@ func (h *hostExecutor) Deploy(ctx context.Context) error {
 			)
 		}
 	}
-
-	return h.startServe(ctx)
+	return nil
 }
 
 func (h *hostExecutor) Up(ctx context.Context) error {
@@ -115,6 +127,16 @@ func (h *hostExecutor) Up(ctx context.Context) error {
 	}
 	if alive {
 		return nil // already running
+	}
+	return h.startServe(ctx)
+}
+
+// Restart stops the serve process (if running) then relaunches it. Down is
+// already idempotent (a no-op when no PID is recorded), so Restart works
+// whether or not the process is currently alive.
+func (h *hostExecutor) Restart(ctx context.Context) error {
+	if err := h.Down(ctx); err != nil {
+		return err
 	}
 	return h.startServe(ctx)
 }

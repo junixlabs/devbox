@@ -283,9 +283,18 @@ func upCmd(wm workspace.Manager) *cobra.Command {
 				slog.Debug("no user identity available, using unnamed workspace", "error", err)
 			}
 
+			// Host-runtime workspace names omit the branch: the branch is
+			// mutable in-place state synced by Refresh (see below), not part
+			// of the workspace's identity — otherwise a branch change would
+			// always compute a new name and never reach the refresh path.
+			// Docker-runtime workspaces keep branch-in-name unchanged.
 			wsName := cfg.Name
 			if user != "" {
-				wsName = workspace.FormatName(user, cfg.Name, cfg.Branch)
+				if cfg.Runtime == config.RuntimeHost {
+					wsName = workspace.FormatName(user, cfg.Name, "")
+				} else {
+					wsName = workspace.FormatName(user, cfg.Name, cfg.Branch)
+				}
 			}
 
 			spin := ui.StartSpinner("Starting workspace...")
@@ -304,17 +313,34 @@ func upCmd(wm workspace.Manager) *cobra.Command {
 				Resources: resources,
 			})
 			if err != nil {
-				// If workspace already exists, start it instead.
+				// If the workspace already exists: for host-runtime
+				// workspaces, refresh it in place (sync the branch, restart
+				// Metro or rebuild as needed) instead of a no-op Start; for
+				// Docker-runtime workspaces, keep the existing Start fallback.
 				var wsErr *workspace.WorkspaceError
 				if errors.As(err, &wsErr) && strings.Contains(wsErr.Message, "already exists") {
-					if startErr := wm.Start(wsName); startErr != nil {
-						ui.StopSpinner(spin, false)
-						return fmt.Errorf("devbox up: %w", startErr)
-					}
-					ws, err = wm.Get(wsName)
-					if err != nil {
-						ui.StopSpinner(spin, false)
-						return fmt.Errorf("devbox up: %w", err)
+					if cfg.Runtime == config.RuntimeHost {
+						ws, err = wm.Refresh(workspace.RefreshParams{
+							Name:   wsName,
+							Branch: cfg.Branch,
+							Setup:  cfg.Setup,
+							Serve:  cfg.Serve,
+							Env:    cfg.Env,
+						})
+						if err != nil {
+							ui.StopSpinner(spin, false)
+							return fmt.Errorf("devbox up: %w", err)
+						}
+					} else {
+						if startErr := wm.Start(wsName); startErr != nil {
+							ui.StopSpinner(spin, false)
+							return fmt.Errorf("devbox up: %w", startErr)
+						}
+						ws, err = wm.Get(wsName)
+						if err != nil {
+							ui.StopSpinner(spin, false)
+							return fmt.Errorf("devbox up: %w", err)
+						}
 					}
 				} else {
 					ui.StopSpinner(spin, false)

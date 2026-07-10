@@ -58,6 +58,20 @@ type CreateParams struct {
 	Resources config.Resources
 }
 
+// RefreshParams bundles the fresh devbox.yaml-derived inputs for refreshing
+// an existing host-runtime workspace in place: syncing a (possibly new)
+// branch and applying its Setup/Serve/Env, without a full Destroy+Create
+// cycle. Unlike CreateParams these values are read fresh on every refresh
+// rather than trusting persisted workspace state, so config changes take
+// effect on re-run.
+type RefreshParams struct {
+	Name   string
+	Branch string
+	Setup  []string
+	Serve  string
+	Env    map[string]string
+}
+
 // ListOptions controls filtering for workspace listing.
 type ListOptions struct {
 	User string // filter by user; empty means no filter
@@ -71,6 +85,13 @@ type Manager interface {
 
 	// Start starts a stopped workspace.
 	Start(name string) error
+
+	// Refresh syncs an existing host-runtime workspace to params' branch in
+	// place — git fetch+checkout, then fast-refresh (serve left to Metro's
+	// own hot-reload) or rebuild (re-run setup + restart serve), depending
+	// on whether the diff touches native/lockfile paths. Docker-runtime
+	// workspaces never reach this path (callers route by cfg.Runtime).
+	Refresh(params RefreshParams) (*Workspace, error)
 
 	// Stop stops a running workspace without destroying it.
 	Stop(name string) error
@@ -111,7 +132,7 @@ func (e *WorkspaceError) Error() string {
 	return e.Message
 }
 
-func (e *WorkspaceError) Unwrap() error        { return e.Err }
+func (e *WorkspaceError) Unwrap() error         { return e.Err }
 func (e *WorkspaceError) GetSuggestion() string { return e.Suggestion }
 
 // FormatName returns a workspace name in the format {user}-{project}-{branch}.

@@ -22,9 +22,13 @@ func (m *mockManager) Create(params workspace.CreateParams) (*workspace.Workspac
 	return nil, nil
 }
 
-func (m *mockManager) Start(name string) error { return m.startErr }
-func (m *mockManager) Stop(name string) error  { return m.stopErr }
+func (m *mockManager) Start(name string) error   { return m.startErr }
+func (m *mockManager) Stop(name string) error    { return m.stopErr }
 func (m *mockManager) Destroy(name string) error { return m.destroyErr }
+
+func (m *mockManager) Refresh(params workspace.RefreshParams) (*workspace.Workspace, error) {
+	return nil, nil
+}
 
 func (m *mockManager) List(opts workspace.ListOptions) ([]workspace.Workspace, error) {
 	return m.workspaces, nil
@@ -290,4 +294,3 @@ func TestWindowResize(t *testing.T) {
 		t.Errorf("expected 120x40, got %dx%d", m.width, m.height)
 	}
 }
-
