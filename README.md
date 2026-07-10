@@ -21,25 +21,9 @@ devbox takes any Linux box — an old desktop, a mini-PC, a cheap VPS — and ma
 
 ## How it works
 
-```mermaid
-flowchart LR
-    Dev["👩‍💻 Your machine<br/>devbox up"]
-
-    subgraph TS["🔒 Tailscale private network"]
-        direction TB
-        Pool{{"Server pool<br/>auto-selects least-loaded"}}
-        Box["🖥️ Server e.g. dev1"]
-        Docker["📦 Docker workspace<br/>app + service containers"]
-        Host["⚙️ Host workspace<br/>bare-metal · Expo / Metro"]
-        Pool --> Box
-        Box --> Docker
-        Box --> Host
-    end
-
-    Dev -->|reads devbox.yaml| Pool
-    Editor["🧑‍💻 Editor / SSH"] -->|HTTPS · SSH| Docker
-    Phone["📱 Phone · Expo Go"] -->|exp:// over tailnet or LAN| Host
-```
+<p align="center">
+  <img src="docs/assets/how-it-works.png" alt="How devbox works: your machine runs 'devbox up', which selects a server in your Tailscale network and provisions a Docker or host-runtime workspace; an editor connects over HTTPS/SSH and a phone connects to an Expo/Metro preview." width="880">
+</p>
 
 1. **`devbox up`** reads `devbox.yaml` and picks a server from your pool (or the one you name).
 2. It provisions a **workspace** on that server — **Docker containers** (default, isolated) or a **bare-metal host runtime** (for mobile / native tooling).

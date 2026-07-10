@@ -1,0 +1,17 @@
+flowchart LR
+    Dev["Your machine<br/>devbox up"]
+
+    subgraph TS["Tailscale private network"]
+        direction TB
+        Pool{{"Server pool<br/>auto-selects least-loaded"}}
+        Box["Server e.g. dev1"]
+        Docker["Docker workspace<br/>app + service containers"]
+        Host["Host workspace<br/>bare-metal · Expo / Metro"]
+        Pool --> Box
+        Box --> Docker
+        Box --> Host
+    end
+
+    Dev -->|reads devbox.yaml| Pool
+    Editor["Editor / SSH"] -->|HTTPS · SSH| Docker
+    Phone["Phone · Expo Go"] -->|exp:// over tailnet or LAN| Host
