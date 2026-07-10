@@ -794,6 +794,61 @@ func TestManager_Refresh_PersistsFreshConfigNotStaleState(t *testing.T) {
 	}
 }
 
+// --- BuildEAS ---
+
+func TestManager_BuildEAS_NotFound(t *testing.T) {
+	mgr := refreshTestManager(t, &recordingSSH{})
+	_, err := mgr.BuildEAS("nonexistent", "preview")
+	if err == nil {
+		t.Fatal("expected error for a nonexistent workspace")
+	}
+}
+
+func TestManager_BuildEAS_RejectsNonHostRuntime(t *testing.T) {
+	mgr := refreshTestManager(t, &recordingSSH{})
+	mgr.state.Put(&Workspace{
+		Name: "docker-ws", ServerHost: "box1", Runtime: config.RuntimeDocker,
+	})
+
+	_, err := mgr.BuildEAS("docker-ws", "preview")
+	if err == nil {
+		t.Fatal("expected error building EAS for a docker-runtime workspace")
+	}
+	if !strings.Contains(err.Error(), "runtime: host") {
+		t.Errorf("error = %q, want it to explain host-runtime is required", err.Error())
+	}
+}
+
+func TestManager_BuildEAS_HostRuntimeReturnsArtifactURL(t *testing.T) {
+	rec := &recordingSSH{
+		runFunc: func(cmd string) (string, string, error) {
+			return `[{"artifacts":{"applicationArchiveUrl":"https://expo.dev/artifacts/app.apk"}}]`, "", nil
+		},
+	}
+	mgr := refreshTestManager(t, rec)
+	mgr.state.Put(&Workspace{
+		Name: "host-ws", ServerHost: "box1", Runtime: config.RuntimeHost,
+	})
+
+	url, err := mgr.BuildEAS("host-ws", "preview")
+	if err != nil {
+		t.Fatalf("BuildEAS() error: %v", err)
+	}
+	if url != "https://expo.dev/artifacts/app.apk" {
+		t.Errorf("BuildEAS() = %q, want the parsed artifact URL", url)
+	}
+
+	found := false
+	for _, c := range rec.calls {
+		if strings.Contains(c, "eas-cli build") && strings.Contains(c, "--profile preview") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected an eas-cli build call with --profile preview, calls: %v", rec.calls)
+	}
+}
+
 func TestFormatPath(t *testing.T) {
 	tests := []struct {
 		root, user, project, branch, want string
