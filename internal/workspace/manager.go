@@ -140,6 +140,7 @@ func (m *remoteManager) Create(params CreateParams) (*Workspace, error) {
 		Runtime:        runtime,
 		Setup:          params.Setup,
 		Serve:          params.Serve,
+		AppDir:         params.AppDir,
 		Services:       params.Services,
 		Ports:          params.Ports,
 		Env:            params.Env,
@@ -170,6 +171,7 @@ func (m *remoteManager) Create(params CreateParams) (*Workspace, error) {
 		Runtime:    runtime,
 		Setup:      params.Setup,
 		Serve:      params.Serve,
+		AppDir:     params.AppDir,
 		Ports:      params.Ports,
 		Env:        params.Env,
 		Services:   params.Services,
@@ -199,6 +201,7 @@ func (m *remoteManager) newExecutor(sshExec devboxssh.Executor, ws *Workspace) (
 		Runtime:        ws.Runtime,
 		Setup:          ws.Setup,
 		Serve:          ws.Serve,
+		AppDir:         ws.AppDir,
 		Services:       ws.Services,
 		Env:            ws.Env,
 		WorkspacesRoot: docker.WorkspaceBaseDir,
@@ -386,6 +389,7 @@ func (m *remoteManager) Refresh(params RefreshParams) (*Workspace, error) {
 		Runtime:        config.RuntimeHost,
 		Setup:          params.Setup,
 		Serve:          params.Serve,
+		AppDir:         params.AppDir,
 		Env:            params.Env,
 		WorkspacesRoot: docker.WorkspaceBaseDir,
 	}
@@ -424,6 +428,7 @@ func (m *remoteManager) Refresh(params RefreshParams) (*Workspace, error) {
 	ws.Branch = branch
 	ws.Setup = params.Setup
 	ws.Serve = params.Serve
+	ws.AppDir = params.AppDir
 	ws.Env = params.Env
 	ws.Status = StatusRunning
 	ws.StartedAt = &now

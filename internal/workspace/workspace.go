@@ -32,6 +32,7 @@ type Workspace struct {
 	Runtime    string            `json:"runtime,omitempty"`
 	Setup      []string          `json:"setup,omitempty"`
 	Serve      string            `json:"serve,omitempty"`
+	AppDir     string            `json:"app_dir,omitempty"`
 	ServePID   int               `json:"serve_pid,omitempty"`
 	Ports      map[string]int    `json:"ports"`
 	Env        map[string]string `json:"env"`
@@ -52,6 +53,7 @@ type CreateParams struct {
 	Runtime   string
 	Setup     []string
 	Serve     string
+	AppDir    string
 	Services  []string
 	Ports     map[string]int
 	Env       map[string]string
@@ -69,6 +71,7 @@ type RefreshParams struct {
 	Branch string
 	Setup  []string
 	Serve  string
+	AppDir string
 	Env    map[string]string
 }
 

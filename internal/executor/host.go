@@ -38,9 +38,21 @@ type hostExecutor struct {
 	setup   []string
 	serve   string
 	env     map[string]string
+	appDir  string
 }
 
+// validAppDir matches a safe relative subdirectory (no shell metachars). The
+// no-`..` check is enforced separately.
+var validAppDir = regexp.MustCompile(`^[a-zA-Z0-9._][a-zA-Z0-9._/-]*$`)
+
 func newHostExecutor(sshExec ssh.Executor, cfg *config.DevboxConfig, host, name string) (Executor, error) {
+	if cfg.AppDir != "" && (!validAppDir.MatchString(cfg.AppDir) || strings.Contains(cfg.AppDir, "..")) {
+		return nil, devboxerr.NewConfigError(
+			fmt.Sprintf("invalid appDir %q", cfg.AppDir),
+			"appDir must be a relative path (letters, digits, ., _, -, /) with no '..'",
+			nil,
+		)
+	}
 	workdir := cfg.WorkspacesRoot + "/" + name
 	return &hostExecutor{
 		ssh:     sshExec,
@@ -53,7 +65,17 @@ func newHostExecutor(sshExec ssh.Executor, cfg *config.DevboxConfig, host, name 
 		setup:   cfg.Setup,
 		serve:   cfg.Serve,
 		env:     cfg.Env,
+		appDir:  cfg.AppDir,
 	}, nil
+}
+
+// runDir is the directory host commands (setup, serve, build) execute in: the
+// cloned src root, or a subdirectory of it when appDir is set (monorepo apps).
+func (h *hostExecutor) runDir() string {
+	if h.appDir != "" {
+		return h.srcDir + "/" + h.appDir
+	}
+	return h.srcDir
 }
 
 // PID reads the PID of the running serve process from its PID file. Callers
@@ -108,7 +130,7 @@ func (h *hostExecutor) Deploy(ctx context.Context) error {
 func (h *hostExecutor) RunSetup(ctx context.Context) error {
 	exports := h.exportPrefix()
 	for _, cmd := range h.setup {
-		full := fmt.Sprintf("cd %s && %s%s", h.srcDir, exports, cmd)
+		full := fmt.Sprintf("cd %s && %s%s", h.runDir(), exports, cmd)
 		if _, stderr, err := h.ssh.Run(ctx, h.host, full); err != nil {
 			return devboxerr.NewConnectionError(
 				fmt.Sprintf("setup command %q failed on %s\nstderr: %s", cmd, h.host, stderr),
@@ -167,7 +189,7 @@ func (h *hostExecutor) BuildAndroid(ctx context.Context, profile string) (string
 	exports := h.exportPrefix()
 	cmd := fmt.Sprintf(
 		"cd %s && %snpx --yes eas-cli build --platform android --profile %s --non-interactive --json --wait",
-		h.srcDir, exports, profile,
+		h.runDir(), exports, profile,
 	)
 	stdout, stderr, err := h.ssh.Run(ctx, h.host, cmd)
 	if err != nil {
@@ -202,7 +224,7 @@ func (h *hostExecutor) startServe(ctx context.Context) error {
 	exports := h.exportPrefix()
 	launch := fmt.Sprintf(
 		"cd %s && %ssetsid bash -c %s >%s 2>&1 </dev/null & echo $! >%s",
-		h.srcDir, exports, shellQuote("exec "+h.serve), h.logFile, h.pidFile,
+		h.runDir(), exports, shellQuote("exec "+h.serve), h.logFile, h.pidFile,
 	)
 	if _, stderr, err := h.ssh.Run(ctx, h.host, launch); err != nil {
 		return devboxerr.NewConnectionError(

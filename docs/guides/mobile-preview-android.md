@@ -63,9 +63,10 @@ server: dev1
 runtime: host
 repo: git@github.com:your-org/your-expo-app.git
 branch: main
+appDir: mobile            # subdirectory the app lives in — omit if at repo root
 setup:
-  - cd mobile && npm install --no-audit --no-fund   # drop `cd mobile &&` if the app is at repo root
-serve: bash -lc "cd mobile && exec npx expo start --port 8081"
+  - npm install --no-audit --no-fund
+serve: npx expo start --port 8081
 ports:
   metro: 8081
 env:
@@ -74,8 +75,9 @@ env:
 
 Notes:
 
-- **App in a subdirectory** (monorepo): `cd mobile && …` in both `setup` and
-  `serve`. `serve` must be `exec`-able, so wrap it: `bash -lc "cd mobile && exec …"`.
+- **App in a subdirectory** (monorepo): set `appDir:` to the app folder. `setup`,
+  `serve`, and `--build` all run there — no `cd` needed in the commands. Omit
+  `appDir` for an app at the repo root.
 - **`.env` is usually gitignored** — inject public runtime config via `env:`.
 - **Port** — if `8081` is already used by another Metro instance on the box,
   pick a free one (`--port 8090`) and set `ports.metro` to match.

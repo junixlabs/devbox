@@ -552,3 +552,42 @@ func TestExportPrefix_RejectsUnsafeKeys(t *testing.T) {
 		t.Errorf("prefix = %q, should not contain unsafe key bad;key", prefix)
 	}
 }
+
+func TestHostExecutor_AppDir_RunsInSubdir(t *testing.T) {
+	mock := &mockSSHExecutor{
+		runOut: `[{"artifacts":{"applicationArchiveUrl":"https://expo.dev/artifacts/app.apk"}}]`,
+	}
+	cfg := &config.DevboxConfig{
+		Name: "ws", Server: "box1", Runtime: config.RuntimeHost,
+		AppDir: "mobile", Serve: "expo start",
+		WorkspacesRoot: "/workspaces",
+	}
+	ex, err := newHostExecutor(mock, cfg, "box1", "ws")
+	if err != nil {
+		t.Fatalf("newHostExecutor() error: %v", err)
+	}
+	h := ex.(*hostExecutor)
+
+	// setup, serve, and build must all run inside src/mobile.
+	if _, err := h.BuildAndroid(context.Background(), "preview"); err != nil {
+		t.Fatalf("BuildAndroid() error: %v", err)
+	}
+	if err := h.startServe(context.Background()); err != nil {
+		t.Fatalf("startServe() error: %v", err)
+	}
+	for _, cmd := range mock.calls {
+		if !strings.Contains(cmd, "cd /workspaces/ws/src/mobile") {
+			t.Errorf("command should cd into the app subdir, got: %q", cmd)
+		}
+	}
+}
+
+func TestHostExecutor_AppDir_RejectsUnsafe(t *testing.T) {
+	cfg := &config.DevboxConfig{
+		Name: "ws", Server: "box1", Runtime: config.RuntimeHost,
+		AppDir: "../etc", Serve: "expo start", WorkspacesRoot: "/workspaces",
+	}
+	if _, err := newHostExecutor(&mockSSHExecutor{}, cfg, "box1", "ws"); err == nil {
+		t.Fatal("newHostExecutor() should reject appDir containing '..'")
+	}
+}

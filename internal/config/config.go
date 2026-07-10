@@ -99,6 +99,7 @@ type DevboxConfig struct {
 	Runtime        string            `yaml:"runtime,omitempty"`
 	Setup          []string          `yaml:"setup,omitempty"`
 	Serve          string            `yaml:"serve,omitempty"`
+	AppDir         string            `yaml:"appDir,omitempty"`
 	Services       []string          `yaml:"services,omitempty"`
 	Ports          map[string]int    `yaml:"ports,omitempty"`
 	PortRange      *PortRangeConfig  `yaml:"port_range,omitempty"`

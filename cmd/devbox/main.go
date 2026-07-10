@@ -351,6 +351,7 @@ func upCmd(wm workspace.Manager) *cobra.Command {
 				Runtime:   cfg.Runtime,
 				Setup:     cfg.Setup,
 				Serve:     cfg.Serve,
+				AppDir:    cfg.AppDir,
 				Services:  cfg.Services,
 				Ports:     cfg.Ports,
 				Env:       cfg.Env,
@@ -369,6 +370,7 @@ func upCmd(wm workspace.Manager) *cobra.Command {
 							Branch: cfg.Branch,
 							Setup:  cfg.Setup,
 							Serve:  cfg.Serve,
+							AppDir: cfg.AppDir,
 							Env:    cfg.Env,
 						})
 						if err != nil {
