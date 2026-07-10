@@ -94,6 +94,6 @@ serve: expo start --tunnel
 
 This abstraction is the base the rest of the mobile-preview epic builds on:
 
-- **MCP preview output** — `Logs` (dump mode) gives a stable, non-interactive way to read recent serve output.
-- **connectUrl/QR output** — the Tailscale FQDN above, plus the `metro`/`expo` ports already in workspace state, are what a future MCP output step composes into a connect URL/QR for the device.
+- **Machine-readable preview output** — `Logs` (dump mode) gives a stable, non-interactive way to read recent serve output.
+- **connectUrl/QR output** — the Tailscale FQDN above, plus the `metro`/`expo` ports already in workspace state, are composed into a connect URL and QR by the `--json` output on `devbox up`/`list` (see `internal/preview`).
 - **Idempotent refresh** — a future "reinstall deps" flow can reuse `Deploy`'s setup-then-serve sequence without needing a new interface method; today it isn't exposed as a separate operation.

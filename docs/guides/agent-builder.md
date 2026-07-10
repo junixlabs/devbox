@@ -1,6 +1,6 @@
 # AI Agent Builder Guide
 
-This guide covers using devbox to give AI agents their own isolated dev environments — one workspace per agent, with programmatic control via CLI or MCP.
+This guide covers using devbox to give AI agents their own isolated dev environments — one workspace per agent, with programmatic control via the scriptable CLI.
 
 ## Why devbox for AI agents?
 
@@ -16,7 +16,6 @@ AI coding agents need the same things human developers need: a machine to run co
 
 - devbox installed and configured ([Quick Start](../getting-started/quickstart.md))
 - At least one server in the pool
-- For MCP: devbox MCP server ([reference](../reference/mcp-server.md))
 
 ## Architecture
 
@@ -189,26 +188,19 @@ name: agent-abc123
 repo: git@github.com:your-org/project.git
 ```
 
-## MCP Integration
+## Programmatic control
 
-devbox exposes all operations via the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/). Any MCP-compatible client — Claude Desktop, custom scripts, or agent frameworks — can manage workspaces programmatically.
+Every devbox operation is available on the CLI, so an orchestrator drives it by shelling out. For machine-readable results, add `--json`:
 
-### Connect Claude Desktop
+```bash
+# Provision (or refresh) an agent's workspace and capture structured output
+devbox up --json          # → { "status", "connect_url", "qr", "mode" }
 
-```json
-{
-  "mcpServers": {
-    "devbox": {
-      "command": "devbox",
-      "args": ["mcp", "serve"]
-    }
-  }
-}
+# Enumerate agent workspaces with their connect URLs
+devbox list --all --json
 ```
 
-Once connected, an AI agent can create workspaces, execute commands, run tests, and destroy environments — all through MCP tools.
-
-See the [MCP Server Reference](../reference/mcp-server.md) for the full tool catalog, and the [Agent Farm Setup Guide](agent-farm.md) for running multi-agent fleets.
+`up --json` and `list --json` emit a stable JSON contract — status, connect URL, QR data-URI, and mode — so an agent framework can provision environments, read connection details, and tear them down without scraping human-readable logs.
 
 ## Monitoring Agent Workspaces
 

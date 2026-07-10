@@ -222,7 +222,7 @@ Set up server pools, manage users, configure resource limits, and monitor your f
 
 ### For AI Agent Builders
 
-Give your AI agents isolated dev environments. MCP integration, workspace-per-agent, and automated cleanup.
+Give your AI agents isolated dev environments — one workspace per agent, scriptable via the CLI with `--json` output, and automated cleanup.
 
 [Agent Builder Guide :arrow_right:](guides/agent-builder.md)
 
