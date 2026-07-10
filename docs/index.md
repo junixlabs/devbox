@@ -47,7 +47,7 @@ You own the hardware. You deserve a dev environment tool that respects that.
 | **Editor support** | Any (SSH) | VS Code, JetBrains | Any (SSH) | Any (SSH) |
 | **CI/CD previews** | Built-in | GitHub only | Manual | No |
 | **Plugin system** | Yes | No | Yes | No |
-| **Active development** | Yes | Yes | Yes | Abandoned (2024) |
+| **Active development** | Yes | Yes | Yes | Minimal |
 
 ---
 

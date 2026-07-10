@@ -1,3 +1,8 @@
+<!-- forge:orientation -->
+<!-- Forge-managed pointer (fixed). Project orientation lives in .forge/orientation.md. -->
+@.forge/orientation.md
+<!-- /forge:orientation -->
+
 # devbox
 Go CLI tool that turns any Linux machine into a ready-to-use dev environment in one command via Docker + Tailscale.
 
