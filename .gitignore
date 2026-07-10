@@ -41,3 +41,6 @@ devbox.yaml
 # MkDocs
 /site/
 .venv/
+
+# Claude Code
+.claude/
