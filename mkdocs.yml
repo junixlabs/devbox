@@ -80,6 +80,7 @@ nav:
   - Guides:
     - Developer Guide: guides/developer.md
     - Admin Guide: guides/admin.md
+    - Mobile Preview (Expo): guides/mobile-preview-android.md
     - AI Agent Builder: guides/agent-builder.md
     - Migrate from Codespaces: guides/migrate-codespaces.md
     - Migrate from DevPod: guides/migrate-devpod.md

@@ -212,6 +212,7 @@ devbox up --build            # run an EAS Android build → installable artifact
 - [Quick Start Guide](https://junixlabs.github.io/devbox/getting-started/quickstart/) — install to `devbox up` in 15 minutes
 - [Configuration Reference](https://junixlabs.github.io/devbox/getting-started/config/) — every `devbox.yaml` field
 - [Developer Guide](https://junixlabs.github.io/devbox/guides/developer/) — daily workflow, templates, snapshots
+- [Mobile Preview (Expo)](https://junixlabs.github.io/devbox/guides/mobile-preview-android/) — serve an Expo app to a device over Tailscale/LAN, EAS builds
 - [Admin Guide](https://junixlabs.github.io/devbox/guides/admin/) — server pools, user isolation, monitoring
 - [Plugin API](https://junixlabs.github.io/devbox/reference/plugin-api/) — custom providers and hooks
 - [Troubleshooting](https://junixlabs.github.io/devbox/reference/troubleshooting/) · [FAQ](https://junixlabs.github.io/devbox/reference/faq/)
