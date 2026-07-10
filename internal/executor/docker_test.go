@@ -117,6 +117,26 @@ func TestDockerExecutor_Logs(t *testing.T) {
 	if err := ex.Logs(context.Background(), false, &stdout, &stderr); err != nil {
 		t.Fatalf("Logs() error: %v", err)
 	}
+	if strings.Contains(mock.calls[0], "--follow") {
+		t.Errorf("call = %q, want no --follow when follow=false", mock.calls[0])
+	}
+	if !strings.Contains(mock.calls[0], "logs mysql") {
+		t.Errorf("call = %q, want logs mysql", mock.calls[0])
+	}
+}
+
+func TestDockerExecutor_LogsFollow(t *testing.T) {
+	mock := &mockSSHExecutor{}
+	cfg := &config.DevboxConfig{Name: "test-ws", Server: "devbox-vps", Services: []string{"mysql:8.0"}}
+	ex, err := newDockerExecutor(mock, cfg, "devbox-vps", "test-ws")
+	if err != nil {
+		t.Fatalf("newDockerExecutor() error: %v", err)
+	}
+
+	var stdout, stderr strings.Builder
+	if err := ex.Logs(context.Background(), true, &stdout, &stderr); err != nil {
+		t.Fatalf("Logs() error: %v", err)
+	}
 	if !strings.Contains(mock.calls[0], "logs --follow mysql") {
 		t.Errorf("call = %q, want logs --follow mysql", mock.calls[0])
 	}

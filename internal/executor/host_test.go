@@ -1,13 +1,46 @@
 package executor
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/junixlabs/devbox/internal/config"
 )
+
+// localExecSSH implements ssh.Executor by running commands through a real
+// local bash instead of over SSH — used to verify actual shell quoting
+// behavior (e.g. env values with spaces) rather than just inspecting the
+// generated command string.
+type localExecSSH struct{}
+
+func (l *localExecSSH) Run(ctx context.Context, _ string, command string) (string, string, error) {
+	var stdout, stderr bytes.Buffer
+	cmd := exec.CommandContext(ctx, "bash", "-c", command)
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	return stdout.String(), stderr.String(), err
+}
+
+func (l *localExecSSH) RunStream(ctx context.Context, _ string, command string, stdout, stderr io.Writer) error {
+	cmd := exec.CommandContext(ctx, "bash", "-c", command)
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
+	return cmd.Run()
+}
+
+func (l *localExecSSH) CopyTo(context.Context, string, string, string) error   { return nil }
+func (l *localExecSSH) CopyFrom(context.Context, string, string, string) error { return nil }
+func (l *localExecSSH) Close() error                                          { return nil }
 
 func TestHostExecutor_Deploy_RunsSetupThenDetachedServe(t *testing.T) {
 	mock := &mockSSHExecutor{}
@@ -81,6 +114,46 @@ func TestHostExecutor_Deploy_SetupFailureAborts(t *testing.T) {
 		if strings.Contains(c, "setsid") {
 			t.Errorf("serve should not launch after setup failure, but found: %q", c)
 		}
+	}
+}
+
+// TestHostExecutor_StartServe_EnvWithSpaceSurvives regression-tests the
+// double-nested bash -c quoting bug: an env value containing a space used
+// to corrupt the launch command so the serve process never actually ran.
+// This drives startServe through a real local shell (not a mock) so it
+// fails without the fix and passes with it.
+func TestHostExecutor_StartServe_EnvWithSpaceSurvives(t *testing.T) {
+	dir := t.TempDir()
+	outFile := filepath.Join(dir, "out.txt")
+
+	h := &hostExecutor{
+		ssh:     &localExecSSH{},
+		host:    "localhost",
+		name:    "test-ws",
+		srcDir:  dir,
+		logFile: filepath.Join(dir, "serve.log"),
+		pidFile: filepath.Join(dir, "serve.pid"),
+		serve:   fmt.Sprintf(`sh -c 'printf "%%s" "$FOO" > %s'`, outFile),
+		env:     map[string]string{"FOO": "bar baz"},
+	}
+
+	if err := h.startServe(context.Background()); err != nil {
+		t.Fatalf("startServe() error: %v", err)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	var out []byte
+	for time.Now().Before(deadline) {
+		b, err := os.ReadFile(outFile)
+		if err == nil {
+			out = b
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	if string(out) != "bar baz" {
+		t.Errorf("serve output = %q, want %q (env value with a space must survive the launch command)", out, "bar baz")
 	}
 }
 

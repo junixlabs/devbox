@@ -121,11 +121,19 @@ func (h *hostExecutor) Up(ctx context.Context) error {
 
 // startServe launches the serve command detached via setsid, redirecting
 // output to logFile and recording the PID in pidFile.
+//
+// exports is applied in the outer shell — same as the setup commands in
+// Deploy — rather than nested inside the inner `bash -c` string. Nesting
+// shellQuote'd exports inside a second single-quoted bash -c would corrupt
+// the invocation for any env value containing a space/quote/metachar,
+// because the outer single quotes end at the first embedded quote. The
+// inner bash -c only ever wraps the fixed "exec <serve>" string, which is
+// itself shell-quoted, so it is safe regardless of what serve contains.
 func (h *hostExecutor) startServe(ctx context.Context) error {
 	exports := h.exportPrefix()
 	launch := fmt.Sprintf(
-		"cd %s && setsid bash -c '%s exec %s' >%s 2>&1 </dev/null & echo $! >%s",
-		h.srcDir, exports, h.serve, h.logFile, h.pidFile,
+		"cd %s && %ssetsid bash -c %s >%s 2>&1 </dev/null & echo $! >%s",
+		h.srcDir, exports, shellQuote("exec "+h.serve), h.logFile, h.pidFile,
 	)
 	if _, stderr, err := h.ssh.Run(ctx, h.host, launch); err != nil {
 		return devboxerr.NewConnectionError(

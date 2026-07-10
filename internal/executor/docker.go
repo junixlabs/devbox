@@ -49,9 +49,7 @@ func (d *dockerExecutor) Down(ctx context.Context) error {
 }
 
 func (d *dockerExecutor) Logs(ctx context.Context, follow bool, stdout, stderr io.Writer) error {
-	// docker.Manager.Logs always follows (--follow); matches existing behavior.
-	_ = follow
-	return d.mgr.Logs(ctx, d.service, stdout, stderr)
+	return d.mgr.Logs(ctx, d.service, follow, stdout, stderr)
 }
 
 func (d *dockerExecutor) Destroy(ctx context.Context) error {

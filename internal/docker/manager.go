@@ -32,8 +32,10 @@ type Manager interface {
 	// PS returns the status of services.
 	PS(ctx context.Context) (string, error)
 
-	// Logs streams logs for a specific service.
-	Logs(ctx context.Context, service string, stdout, stderr io.Writer) error
+	// Logs streams logs for a specific service. When follow is true, the
+	// command keeps streaming new output; otherwise it dumps current logs
+	// and returns.
+	Logs(ctx context.Context, service string, follow bool, stdout, stderr io.Writer) error
 
 	// Destroy stops services, removes volumes, and deletes the workspace directory.
 	Destroy(ctx context.Context) error
@@ -154,7 +156,7 @@ func (m *dockerManager) PS(ctx context.Context) (string, error) {
 	return stdout, nil
 }
 
-func (m *dockerManager) Logs(ctx context.Context, service string, stdout, stderr io.Writer) error {
+func (m *dockerManager) Logs(ctx context.Context, service string, follow bool, stdout, stderr io.Writer) error {
 	if !validName.MatchString(service) {
 		return devboxerr.NewDockerError(
 			fmt.Sprintf("invalid service name %q", service),
@@ -162,7 +164,11 @@ func (m *dockerManager) Logs(ctx context.Context, service string, stdout, stderr
 			nil,
 		)
 	}
-	cmd := m.composeCmd(fmt.Sprintf("logs --follow %s", service))
+	logsArgs := "logs"
+	if follow {
+		logsArgs = "logs --follow"
+	}
+	cmd := m.composeCmd(fmt.Sprintf("%s %s", logsArgs, service))
 	if err := m.ssh.RunStream(ctx, m.host, cmd, stdout, stderr); err != nil {
 		return devboxerr.NewDockerError(
 			fmt.Sprintf("docker compose logs failed for %s on %s", service, m.host),

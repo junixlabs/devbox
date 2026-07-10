@@ -187,6 +187,7 @@ func (m *remoteManager) newExecutor(sshExec devboxssh.Executor, ws *Workspace) (
 		Setup:          ws.Setup,
 		Serve:          ws.Serve,
 		Services:       ws.Services,
+		Env:            ws.Env,
 		WorkspacesRoot: docker.WorkspaceBaseDir,
 	}
 	return executor.New(sshExec, cfg, ws.ServerHost, ws.Name)

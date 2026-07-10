@@ -451,7 +451,7 @@ func TestLogs_Success(t *testing.T) {
 	mgr := newTestManager(t, mock, "test-ws")
 
 	var stdout, stderr strings.Builder
-	if err := mgr.Logs(context.Background(), "mysql", &stdout, &stderr); err != nil {
+	if err := mgr.Logs(context.Background(), "mysql", true, &stdout, &stderr); err != nil {
 		t.Fatalf("Logs() error: %v", err)
 	}
 
@@ -463,12 +463,32 @@ func TestLogs_Success(t *testing.T) {
 	}
 }
 
+func TestLogs_NoFollow(t *testing.T) {
+	mock := &mockExecutor{}
+	mgr := newTestManager(t, mock, "test-ws")
+
+	var stdout, stderr strings.Builder
+	if err := mgr.Logs(context.Background(), "mysql", false, &stdout, &stderr); err != nil {
+		t.Fatalf("Logs() error: %v", err)
+	}
+
+	if len(mock.calls) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(mock.calls))
+	}
+	if strings.Contains(mock.calls[0].command, "--follow") {
+		t.Errorf("command = %q, want no --follow", mock.calls[0].command)
+	}
+	if !strings.Contains(mock.calls[0].command, "logs mysql") {
+		t.Errorf("command = %q, want logs mysql", mock.calls[0].command)
+	}
+}
+
 func TestLogs_Error(t *testing.T) {
 	mock := &mockExecutor{streamErr: errors.New("service not found")}
 	mgr := newTestManager(t, mock, "test-ws")
 
 	var stdout, stderr strings.Builder
-	err := mgr.Logs(context.Background(), "nonexistent", &stdout, &stderr)
+	err := mgr.Logs(context.Background(), "nonexistent", true, &stdout, &stderr)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -484,7 +504,7 @@ func TestLogs_InvalidServiceName(t *testing.T) {
 	mgr := newTestManager(t, mock, "test-ws")
 
 	var stdout, stderr strings.Builder
-	err := mgr.Logs(context.Background(), "mysql; rm -rf /", &stdout, &stderr)
+	err := mgr.Logs(context.Background(), "mysql; rm -rf /", true, &stdout, &stderr)
 	if err == nil {
 		t.Fatal("expected error for invalid service name, got nil")
 	}
