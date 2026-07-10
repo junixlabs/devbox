@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/junixlabs/devbox/internal/config"
+	devboxerr "github.com/junixlabs/devbox/internal/errors"
 )
 
 // localExecSSH implements ssh.Executor by running commands through a real
@@ -406,6 +407,130 @@ func TestHostExecutor_Up_DeadRelaunchesServe(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("Up() should relaunch serve when dead, got: %v", mock.calls)
+	}
+}
+
+func TestHostExecutor_BuildAndroid_SuccessReturnsArtifactURL(t *testing.T) {
+	mock := &mockSSHExecutor{
+		runOut: `[{"artifacts":{"applicationArchiveUrl":"https://expo.dev/artifacts/app.apk"}}]`,
+	}
+	cfg := &config.DevboxConfig{
+		Name: "test-ws", Server: "box1", Runtime: config.RuntimeHost,
+		Env:            map[string]string{"EAS_TOKEN": "secret-token"},
+		WorkspacesRoot: "/workspaces",
+	}
+	ex, err := newHostExecutor(mock, cfg, "box1", "test-ws")
+	if err != nil {
+		t.Fatalf("newHostExecutor() error: %v", err)
+	}
+	h := ex.(*hostExecutor)
+
+	url, err := h.BuildAndroid(context.Background(), "")
+	if err != nil {
+		t.Fatalf("BuildAndroid() error: %v", err)
+	}
+	if url != "https://expo.dev/artifacts/app.apk" {
+		t.Errorf("BuildAndroid() = %q, want the parsed artifact URL", url)
+	}
+
+	if len(mock.calls) != 1 {
+		t.Fatalf("expected 1 SSH call, got %d: %v", len(mock.calls), mock.calls)
+	}
+	cmd := mock.calls[0]
+	for _, want := range []string{
+		"cd /workspaces/test-ws/src",
+		"eas-cli build",
+		"--platform android",
+		"--profile preview",
+		"--non-interactive",
+		"--json",
+		"--wait",
+		`export EAS_TOKEN='secret-token'`,
+	} {
+		if !strings.Contains(cmd, want) {
+			t.Errorf("command %q missing %q", cmd, want)
+		}
+	}
+}
+
+func TestHostExecutor_BuildAndroid_CustomProfile(t *testing.T) {
+	mock := &mockSSHExecutor{runOut: `[{"artifacts":{"buildUrl":"https://expo.dev/build/123"}}]`}
+	cfg := &config.DevboxConfig{Name: "test-ws", Server: "box1", Runtime: config.RuntimeHost, WorkspacesRoot: "/workspaces"}
+	ex, err := newHostExecutor(mock, cfg, "box1", "test-ws")
+	if err != nil {
+		t.Fatalf("newHostExecutor() error: %v", err)
+	}
+	h := ex.(*hostExecutor)
+
+	if _, err := h.BuildAndroid(context.Background(), "production"); err != nil {
+		t.Fatalf("BuildAndroid() error: %v", err)
+	}
+	if !strings.Contains(mock.calls[0], "--profile production") {
+		t.Errorf("command = %q, want custom profile 'production'", mock.calls[0])
+	}
+}
+
+func TestHostExecutor_BuildAndroid_InvalidProfileRejectedBeforeSSH(t *testing.T) {
+	mock := &mockSSHExecutor{}
+	cfg := &config.DevboxConfig{Name: "test-ws", Server: "box1", Runtime: config.RuntimeHost, WorkspacesRoot: "/workspaces"}
+	ex, err := newHostExecutor(mock, cfg, "box1", "test-ws")
+	if err != nil {
+		t.Fatalf("newHostExecutor() error: %v", err)
+	}
+	h := ex.(*hostExecutor)
+
+	_, err = h.BuildAndroid(context.Background(), "bad;rm -rf /")
+	if err == nil {
+		t.Fatal("expected error for invalid profile name")
+	}
+	var cfgErr *devboxerr.ConfigError
+	if !errors.As(err, &cfgErr) {
+		t.Errorf("expected *devboxerr.ConfigError, got %T: %v", err, err)
+	}
+	if len(mock.calls) != 0 {
+		t.Errorf("expected zero SSH calls for an invalid profile, got: %v", mock.calls)
+	}
+}
+
+func TestHostExecutor_BuildAndroid_EASFailureWrapsConnectionError(t *testing.T) {
+	mock := &mockSSHExecutor{
+		runFunc: func(cmd string) (string, string, error) {
+			return "", "eas build failed: invalid credentials", errors.New("exit 1")
+		},
+	}
+	cfg := &config.DevboxConfig{Name: "test-ws", Server: "box1", Runtime: config.RuntimeHost, WorkspacesRoot: "/workspaces"}
+	ex, err := newHostExecutor(mock, cfg, "box1", "test-ws")
+	if err != nil {
+		t.Fatalf("newHostExecutor() error: %v", err)
+	}
+	h := ex.(*hostExecutor)
+
+	_, err = h.BuildAndroid(context.Background(), "preview")
+	if err == nil {
+		t.Fatal("expected error when eas build fails")
+	}
+	var connErr *devboxerr.ConnectionError
+	if !errors.As(err, &connErr) {
+		t.Errorf("expected *devboxerr.ConnectionError, got %T: %v", err, err)
+	}
+}
+
+func TestHostExecutor_BuildAndroid_NoURLInOutputIsConfigError(t *testing.T) {
+	mock := &mockSSHExecutor{runOut: "no build info here"}
+	cfg := &config.DevboxConfig{Name: "test-ws", Server: "box1", Runtime: config.RuntimeHost, WorkspacesRoot: "/workspaces"}
+	ex, err := newHostExecutor(mock, cfg, "box1", "test-ws")
+	if err != nil {
+		t.Fatalf("newHostExecutor() error: %v", err)
+	}
+	h := ex.(*hostExecutor)
+
+	_, err = h.BuildAndroid(context.Background(), "preview")
+	if err == nil {
+		t.Fatal("expected error when no artifact URL is found in output")
+	}
+	var cfgErr *devboxerr.ConfigError
+	if !errors.As(err, &cfgErr) {
+		t.Errorf("expected *devboxerr.ConfigError, got %T: %v", err, err)
 	}
 }
 
