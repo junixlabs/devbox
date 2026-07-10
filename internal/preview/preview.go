@@ -57,6 +57,19 @@ func ConnectURL(ws workspace.Workspace, fqdn string) string {
 	return "https://" + fqdn
 }
 
+// QRTerminal renders text as a compact QR code drawn with Unicode half-blocks,
+// scannable straight from a terminal. Empty text yields an empty string.
+func QRTerminal(text string) (string, error) {
+	if text == "" {
+		return "", nil
+	}
+	q, err := qrcode.New(text, qrcode.Low)
+	if err != nil {
+		return "", fmt.Errorf("encoding QR code: %w", err)
+	}
+	return q.ToSmallString(false), nil
+}
+
 // QRDataURI encodes text as a QR code and returns it as a base64 PNG data-URI
 // (directly renderable by a client). Empty text yields an empty string.
 func QRDataURI(text string) (string, error) {

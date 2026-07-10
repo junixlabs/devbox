@@ -233,6 +233,20 @@ func (h *hostExecutor) startServe(ctx context.Context) error {
 			err,
 		)
 	}
+
+	// Confirm the process actually stayed up — a serve that exits right after
+	// launching (e.g. Expo hitting a port conflict and skipping in
+	// non-interactive mode) must be reported as a failure, not "running".
+	check := fmt.Sprintf("sleep 2; if kill -0 $(cat %s 2>/dev/null) 2>/dev/null; then echo alive; fi", h.pidFile)
+	out, _, _ := h.ssh.Run(ctx, h.host, check)
+	if strings.TrimSpace(out) != "alive" {
+		logTail, _, _ := h.ssh.Run(ctx, h.host, fmt.Sprintf("tail -n 15 %s 2>/dev/null", h.logFile))
+		return devboxerr.NewConfigError(
+			fmt.Sprintf("serve process for %s exited right after starting on %s\nrecent logs:\n%s", h.name, h.host, strings.TrimSpace(logTail)),
+			"Check the serve command and its port in devbox.yaml (another process may already hold the port)",
+			nil,
+		)
+	}
 	return nil
 }
 

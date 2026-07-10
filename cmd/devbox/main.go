@@ -371,6 +371,7 @@ func upCmd(wm workspace.Manager) *cobra.Command {
 							Setup:  cfg.Setup,
 							Serve:  cfg.Serve,
 							AppDir: cfg.AppDir,
+							Ports:  cfg.Ports,
 							Env:    cfg.Env,
 						})
 						if err != nil {
@@ -394,16 +395,28 @@ func upCmd(wm workspace.Manager) *cobra.Command {
 				}
 			}
 
-			// Expose ports via Tailscale on the remote server
+			// Expose ports via Tailscale serve (HTTPS reverse proxy). Skipped for
+			// host-runtime (Expo/Metro): the device connects to the raw Metro TCP
+			// port over the tailnet/LAN, not through the serve proxy.
 			tm := tailscale.NewManager(remoteRunner(sshExec, cfg.Server))
-			for name, port := range cfg.Ports {
-				if err := tm.Serve(port, ws.Name); err != nil {
-					fmt.Fprintf(os.Stderr, "Warning: failed to expose port %s (%d): %v\n", name, port, err)
+			if cfg.Runtime != config.RuntimeHost {
+				for name, port := range cfg.Ports {
+					if err := tm.Serve(port, ws.Name); err != nil {
+						fmt.Fprintf(os.Stderr, "Warning: failed to expose port %s (%d): %v\n", name, port, err)
+					}
 				}
 			}
 			ui.StopSpinner(spin, true)
 
 			tsStatus, _ := tm.Status()
+
+			// advertisedHost is the address a device uses to reach the workspace:
+			// a user-set REACT_NATIVE_PACKAGER_HOSTNAME (e.g. a LAN IP for a
+			// same-Wi-Fi phone) wins, else the box's Tailscale MagicDNS name.
+			advertisedHost := cfg.Env["REACT_NATIVE_PACKAGER_HOSTNAME"]
+			if advertisedHost == "" && tsStatus != nil {
+				advertisedHost = tailscale.MagicDNSFQDN(tsStatus.Hostname, tsStatus.TailnetName)
+			}
 
 			// EAS build mode (A6): produce an installable Android artifact
 			// instead of relying on Metro fast-refresh. Escalation point for
@@ -424,15 +437,11 @@ func upCmd(wm workspace.Manager) *cobra.Command {
 			// Machine-readable output for orchestrators (Forge): structured
 			// preview result on stdout instead of the human block.
 			if jsonOut, _ := cmd.Flags().GetBool("json"); jsonOut {
-				fqdn := ""
-				if tsStatus != nil {
-					fqdn = tailscale.MagicDNSFQDN(tsStatus.Hostname, tsStatus.TailnetName)
-				}
 				mode := ""
 				if cfg.Runtime == config.RuntimeHost {
 					mode = "fast-refresh"
 				}
-				res, err := preview.Build(*ws, fqdn, mode)
+				res, err := preview.Build(*ws, advertisedHost, mode)
 				if err != nil {
 					return fmt.Errorf("devbox up: %w", err)
 				}
@@ -452,6 +461,25 @@ func upCmd(wm workspace.Manager) *cobra.Command {
 
 			if buildMode {
 				fmt.Printf("\n  Android build ready: %s\n\n", installURL)
+				return nil
+			}
+
+			// Host-runtime (Expo/Metro): print the connect URL + a scannable QR.
+			if cfg.Runtime == config.RuntimeHost {
+				res, err := preview.Build(*ws, advertisedHost, "fast-refresh")
+				if err != nil {
+					return fmt.Errorf("devbox up: %w", err)
+				}
+				if res.ConnectURL != "" {
+					fmt.Printf("\n  ✓ Workspace %s running on %s\n\n  Connect (Expo Go): %s\n\n",
+						ws.Name, cfg.Server, res.ConnectURL)
+					if qr, qerr := preview.QRTerminal(res.ConnectURL); qerr == nil && qr != "" {
+						fmt.Println(qr)
+					}
+				} else {
+					ui.PrintUpSuccess(ws.Name, cfg.Server, "", cfg.Ports)
+					fmt.Fprintln(os.Stderr, "Note: could not resolve a connect host (Tailscale/LAN); set REACT_NATIVE_PACKAGER_HOSTNAME or use --tunnel.")
+				}
 				return nil
 			}
 

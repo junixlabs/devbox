@@ -24,6 +24,11 @@ type recordingSSH struct {
 
 func (r *recordingSSH) Run(_ context.Context, _ string, command string) (string, string, error) {
 	r.calls = append(r.calls, command)
+	// startServe's post-launch liveness probe — report alive by default so
+	// lifecycle tests don't each have to script it.
+	if strings.Contains(command, "echo alive") {
+		return "alive", "", nil
+	}
 	if r.runFunc != nil {
 		return r.runFunc(command)
 	}

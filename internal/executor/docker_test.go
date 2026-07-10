@@ -25,6 +25,12 @@ type mockSSHExecutor struct {
 
 func (m *mockSSHExecutor) Run(_ context.Context, _ string, command string) (string, string, error) {
 	m.calls = append(m.calls, command)
+	// startServe's post-launch liveness probe — report the process as alive by
+	// default so lifecycle tests don't each have to special-case it (checked
+	// before runFunc so runFunc-based tests get it too).
+	if strings.Contains(command, "echo alive") {
+		return "alive", "", nil
+	}
 	if m.runFunc != nil {
 		return m.runFunc(command)
 	}

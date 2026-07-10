@@ -72,6 +72,7 @@ type RefreshParams struct {
 	Setup  []string
 	Serve  string
 	AppDir string
+	Ports  map[string]int
 	Env    map[string]string
 }
 

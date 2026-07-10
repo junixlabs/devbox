@@ -24,6 +24,19 @@ var validName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]*$`)
 var validBranch = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._/-]*$`)
 
 // remoteManager implements Manager by orchestrating SSH and Docker Compose
+// hostWorkspaceRoot is the workspace base for runtime:host — a user-writable
+// path (the shell expands $HOME on the remote box), unlike docker's root-owned
+// /workspaces, so no sudo setup is needed for host-runtime workspaces.
+const hostWorkspaceRoot = "$HOME/.devbox/workspaces"
+
+// workspaceRoot returns the base directory for a runtime's workspaces.
+func workspaceRoot(runtime string) string {
+	if runtime == config.RuntimeHost {
+		return hostWorkspaceRoot
+	}
+	return docker.WorkspaceBaseDir
+}
+
 // operations on a remote server, with local state persistence.
 type remoteManager struct {
 	state *stateStore
@@ -101,7 +114,7 @@ func (m *remoteManager) Create(params CreateParams) (*Workspace, error) {
 	defer sshExec.Close()
 
 	ctx := context.Background()
-	wsDir := docker.WorkspaceBaseDir + "/" + params.Name
+	wsDir := workspaceRoot(params.Runtime) + "/" + params.Name
 
 	// Clone repo if specified.
 	if params.Repo != "" {
@@ -109,8 +122,8 @@ func (m *remoteManager) Create(params CreateParams) (*Workspace, error) {
 		if branch == "" {
 			branch = "main"
 		}
-		cloneCmd := fmt.Sprintf("git clone --branch %s --single-branch -- %s %s/src",
-			branch, params.Repo, wsDir)
+		cloneCmd := fmt.Sprintf("mkdir -p %s && git clone --branch %s --single-branch -- %s %s/src",
+			wsDir, branch, params.Repo, wsDir)
 		slog.Debug("cloning repo", "command", cloneCmd)
 		if _, _, err := sshExec.Run(ctx, params.Server, cloneCmd); err != nil {
 			// Clean up partial workspace on clone failure.
@@ -145,7 +158,7 @@ func (m *remoteManager) Create(params CreateParams) (*Workspace, error) {
 		Ports:          params.Ports,
 		Env:            params.Env,
 		Resources:      res,
-		WorkspacesRoot: docker.WorkspaceBaseDir,
+		WorkspacesRoot: workspaceRoot(runtime),
 	}
 
 	ex, err := executor.New(sshExec, cfg, params.Server, params.Name)
@@ -204,7 +217,7 @@ func (m *remoteManager) newExecutor(sshExec devboxssh.Executor, ws *Workspace) (
 		AppDir:         ws.AppDir,
 		Services:       ws.Services,
 		Env:            ws.Env,
-		WorkspacesRoot: docker.WorkspaceBaseDir,
+		WorkspacesRoot: workspaceRoot(ws.Runtime),
 	}
 	return executor.New(sshExec, cfg, ws.ServerHost, ws.Name)
 }
@@ -351,7 +364,7 @@ func (m *remoteManager) Refresh(params RefreshParams) (*Workspace, error) {
 	defer sshExec.Close()
 
 	ctx := context.Background()
-	srcDir := docker.WorkspaceBaseDir + "/" + ws.Name + "/src"
+	srcDir := workspaceRoot(config.RuntimeHost) + "/" + ws.Name + "/src"
 
 	oldRevOut, _, _ := sshExec.Run(ctx, ws.ServerHost, gitRevParseHeadCmd(srcDir))
 	oldRev := strings.TrimSpace(oldRevOut)
@@ -391,7 +404,7 @@ func (m *remoteManager) Refresh(params RefreshParams) (*Workspace, error) {
 		Serve:          params.Serve,
 		AppDir:         params.AppDir,
 		Env:            params.Env,
-		WorkspacesRoot: docker.WorkspaceBaseDir,
+		WorkspacesRoot: workspaceRoot(config.RuntimeHost),
 	}
 	ex, err := executor.New(sshExec, cfg, ws.ServerHost, ws.Name)
 	if err != nil {
@@ -429,6 +442,9 @@ func (m *remoteManager) Refresh(params RefreshParams) (*Workspace, error) {
 	ws.Setup = params.Setup
 	ws.Serve = params.Serve
 	ws.AppDir = params.AppDir
+	if params.Ports != nil {
+		ws.Ports = params.Ports
+	}
 	ws.Env = params.Env
 	ws.Status = StatusRunning
 	ws.StartedAt = &now

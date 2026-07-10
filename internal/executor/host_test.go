@@ -137,8 +137,8 @@ func TestHostExecutor_Deploy_RunsSetupThenDetachedServe(t *testing.T) {
 		t.Fatalf("Deploy() error: %v", err)
 	}
 
-	if len(mock.calls) != 3 {
-		t.Fatalf("expected 3 SSH calls, got %d: %v", len(mock.calls), mock.calls)
+	if len(mock.calls) != 4 {
+		t.Fatalf("expected 4 SSH calls (mkdir, setup, serve, liveness probe), got %d: %v", len(mock.calls), mock.calls)
 	}
 	if !strings.Contains(mock.calls[0], "mkdir -p /workspaces/test-ws/src") {
 		t.Errorf("call 0 = %q, want mkdir src dir", mock.calls[0])
@@ -210,7 +210,7 @@ func TestHostExecutor_StartServe_EnvWithSpaceSurvives(t *testing.T) {
 		srcDir:  dir,
 		logFile: filepath.Join(dir, "serve.log"),
 		pidFile: filepath.Join(dir, "serve.pid"),
-		serve:   fmt.Sprintf(`sh -c 'printf "%%s" "$FOO" > %s'`, outFile),
+		serve:   fmt.Sprintf(`sh -c 'printf "%%s" "$FOO" > %s; sleep 3'`, outFile),
 		env:     map[string]string{"FOO": "bar baz"},
 	}
 
@@ -576,8 +576,12 @@ func TestHostExecutor_AppDir_RunsInSubdir(t *testing.T) {
 		t.Fatalf("startServe() error: %v", err)
 	}
 	for _, cmd := range mock.calls {
-		if !strings.Contains(cmd, "cd /workspaces/ws/src/mobile") {
-			t.Errorf("command should cd into the app subdir, got: %q", cmd)
+		// Only the setup/serve/build commands run in the app dir; the liveness
+		// probe (kill -0) intentionally runs against the workspace-level pidfile.
+		if strings.Contains(cmd, "eas-cli build") || strings.Contains(cmd, "setsid") {
+			if !strings.Contains(cmd, "cd /workspaces/ws/src/mobile") {
+				t.Errorf("command should cd into the app subdir, got: %q", cmd)
+			}
 		}
 	}
 }
