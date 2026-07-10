@@ -2,9 +2,12 @@ name: expo
 version: "1.0.0"
 description: >-
   Expo/React Native application. Serve with `expo start` (Metro bundler)
-  once inside the workspace — devbox does not yet execute setup/serve
-  commands automatically (host-runtime execution is tracked separately).
-  Requires the Android SDK on the host to run an Android emulator/device.
+  once inside the workspace. To run Metro directly on the host with
+  automatic Tailscale hostname advertising, copy this template's `ports`
+  and `env` into a devbox.yaml with `runtime: host` and
+  `serve: expo start` — devbox templates don't yet carry `runtime`/`serve`
+  themselves (see internal/template.Template). Requires the Android SDK on
+  the host to run an Android emulator/device.
 services: []
 ports:
   metro: 8081

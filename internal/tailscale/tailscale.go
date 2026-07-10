@@ -41,7 +41,15 @@ func NewManager(run CommandRunner) Manager {
 	return &tsManager{run: run}
 }
 
+// MagicDNSFQDN returns the fully-qualified MagicDNS name for a machine on
+// the tailnet, e.g. "devbox-vps.tailb5de5c.ts.net". This is the address other
+// devices on the same tailnet can resolve directly, without going through
+// Tailscale's HTTPS serve/funnel proxy.
+func MagicDNSFQDN(hostname, tailnet string) string {
+	return fmt.Sprintf("%s.%s", hostname, tailnet)
+}
+
 // WorkspaceURL returns the HTTPS URL for a workspace on Tailscale.
 func WorkspaceURL(hostname, tailnet string) string {
-	return fmt.Sprintf("https://%s.%s", hostname, tailnet)
+	return "https://" + MagicDNSFQDN(hostname, tailnet)
 }

@@ -139,6 +139,21 @@ func TestStatus_NoIPs(t *testing.T) {
 	}
 }
 
+func TestMagicDNSFQDN(t *testing.T) {
+	tests := []struct {
+		hostname, tailnet, want string
+	}{
+		{"myhost", "tailb5de5c.ts.net", "myhost.tailb5de5c.ts.net"},
+		{"devbox-vps", "example.com", "devbox-vps.example.com"},
+	}
+	for _, tt := range tests {
+		got := MagicDNSFQDN(tt.hostname, tt.tailnet)
+		if got != tt.want {
+			t.Errorf("MagicDNSFQDN(%q, %q) = %q, want %q", tt.hostname, tt.tailnet, got, tt.want)
+		}
+	}
+}
+
 func TestWorkspaceURL(t *testing.T) {
 	tests := []struct {
 		hostname, tailnet, want string
