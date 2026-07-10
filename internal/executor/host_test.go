@@ -40,7 +40,83 @@ func (l *localExecSSH) RunStream(ctx context.Context, _ string, command string, 
 
 func (l *localExecSSH) CopyTo(context.Context, string, string, string) error   { return nil }
 func (l *localExecSSH) CopyFrom(context.Context, string, string, string) error { return nil }
-func (l *localExecSSH) Close() error                                          { return nil }
+func (l *localExecSSH) Close() error                                           { return nil }
+
+// Compile-time assertion that hostExecutor satisfies Refresher (RunSetup +
+// Restart), so Refresh can type-assert on it without a full Destroy/Deploy.
+var _ Refresher = (*hostExecutor)(nil)
+
+func TestHostExecutor_RunSetup_ReRunnable(t *testing.T) {
+	mock := &mockSSHExecutor{}
+	cfg := &config.DevboxConfig{
+		Name: "test-ws", Server: "box1", Runtime: config.RuntimeHost,
+		Setup: []string{"npm ci"}, Serve: "npm start",
+		Env:            map[string]string{"FOO": "bar"},
+		WorkspacesRoot: "/workspaces",
+	}
+	ex, err := newHostExecutor(mock, cfg, "box1", "test-ws")
+	if err != nil {
+		t.Fatalf("newHostExecutor() error: %v", err)
+	}
+	h := ex.(*hostExecutor)
+
+	if err := h.RunSetup(context.Background()); err != nil {
+		t.Fatalf("RunSetup() error: %v", err)
+	}
+	if err := h.RunSetup(context.Background()); err != nil {
+		t.Fatalf("second RunSetup() error: %v", err)
+	}
+
+	setupCalls := 0
+	for _, c := range mock.calls {
+		if strings.Contains(c, "npm ci") {
+			setupCalls++
+		}
+		if strings.Contains(c, "setsid") {
+			t.Errorf("RunSetup should not launch serve, got: %q", c)
+		}
+	}
+	if setupCalls != 2 {
+		t.Errorf("expected RunSetup to be callable repeatedly, got %d setup calls: %v", setupCalls, mock.calls)
+	}
+}
+
+func TestHostExecutor_Restart_BouncesServe(t *testing.T) {
+	mock := &mockSSHExecutor{
+		runFunc: func(cmd string) (string, string, error) {
+			if strings.HasPrefix(cmd, "cat ") {
+				return "4321", "", nil
+			}
+			return "", "", nil
+		},
+	}
+	cfg := &config.DevboxConfig{Name: "test-ws", Server: "box1", Runtime: config.RuntimeHost, Serve: "npm start", WorkspacesRoot: "/workspaces"}
+	ex, err := newHostExecutor(mock, cfg, "box1", "test-ws")
+	if err != nil {
+		t.Fatalf("newHostExecutor() error: %v", err)
+	}
+	h := ex.(*hostExecutor)
+
+	if err := h.Restart(context.Background()); err != nil {
+		t.Fatalf("Restart() error: %v", err)
+	}
+
+	var sawKill, sawRelaunch bool
+	for _, c := range mock.calls {
+		if strings.Contains(c, "kill -TERM -- -4321") {
+			sawKill = true
+		}
+		if strings.Contains(c, "setsid") {
+			sawRelaunch = true
+		}
+	}
+	if !sawKill {
+		t.Errorf("Restart() should kill the existing serve process, calls: %v", mock.calls)
+	}
+	if !sawRelaunch {
+		t.Errorf("Restart() should relaunch serve, calls: %v", mock.calls)
+	}
+}
 
 func TestHostExecutor_Deploy_RunsSetupThenDetachedServe(t *testing.T) {
 	mock := &mockSSHExecutor{}

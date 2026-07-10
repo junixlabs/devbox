@@ -19,6 +19,20 @@ type PIDReporter interface {
 	PID(ctx context.Context) (int, error)
 }
 
+// Refresher is implemented by executors that support refreshing an existing
+// workspace in place — re-running setup and bouncing the serve process —
+// without a full Destroy/Deploy cycle (currently only hostExecutor). Callers
+// type-assert on it (like PIDReporter) and fall back to Down+Up when an
+// executor doesn't support it.
+type Refresher interface {
+	// RunSetup re-runs the configured setup commands (e.g. a dependency
+	// install) without starting the serve process.
+	RunSetup(ctx context.Context) error
+
+	// Restart stops (if running) then relaunches the serve process.
+	Restart(ctx context.Context) error
+}
+
 // Executor defines the lifecycle operations a runtime must implement.
 type Executor interface {
 	// Deploy provisions the workspace for the first time and starts it.
