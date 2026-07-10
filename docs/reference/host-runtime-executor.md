@@ -75,10 +75,25 @@ Because there's no container filesystem layer, `node_modules`/Gradle/etc. caches
 - **Host resource enforcement** — no cgroups/ulimit are applied under `runtime: host`, only a warning.
 - **Live stats for host workspaces** — `DockerStats`/`ServerResources` remain Docker-only; `devbox list` shows `-` for CPU/memory usage on host workspaces the same way it does for any workspace with no matching container stats.
 
+## Metro/Tailscale exposure
+
+`devbox up` on a `runtime: host` workspace sets `REACT_NATIVE_PACKAGER_HOSTNAME` in the serve process's env (via the `exportPrefix`/`startServe` mechanism above) to the box's Tailscale MagicDNS FQDN (`internal/tailscale.MagicDNSFQDN`, e.g. `devbox-vps.tailb5de5c.ts.net`), resolved with the same `tailscale.NewManager(remoteRunner(...)).Status()` call `upCmd` already used for the Docker `tailscale serve` HTTPS-URL flow. Metro/Expo read that variable as the host advertised in the QR code / connect URL, so a phone on the same tailnet connects directly — no Expo relay, no `--tunnel`.
+
+This is plain env injection, not `tailscale serve`/`Serve`/`Unserve`: Metro needs raw TCP to its dev-server port (8081/19000) over the tailnet, not an HTTPS reverse proxy to a single port.
+
+`cmd/devbox/main.go`'s `injectTailscaleHostname` only fills in `REACT_NATIVE_PACKAGER_HOSTNAME` when it's absent or empty — a real value already set in `devbox.yaml`'s `env:` always wins. An empty string is treated the same as absent so it also fills in the empty-placeholder convention templates use for user-supplied values (e.g. `EXPO_PUBLIC_API_URL: ""` in `internal/template/builtin/expo.yaml`) — there's no useful meaning to an explicitly-empty advertised hostname, so there's nothing to preserve there. It does nothing if Tailscale status can't be resolved — that failure is logged as a warning, not fatal, so `devbox up` still succeeds. For phones that aren't on the tailnet, override `serve` in `devbox.yaml` to add Expo's own fallback:
+
+```yaml
+runtime: host
+serve: expo start --tunnel
+```
+
+`--tunnel` is Expo's existing relay-based connect mode; devbox does not need to detect tailnet membership itself — this is a manual, per-workspace `devbox.yaml` choice, and works whether or not `REACT_NATIVE_PACKAGER_HOSTNAME` is set.
+
 ## Extension points
 
 This abstraction is the base the rest of the mobile-preview epic builds on:
 
-- **Metro/Tailscale exposure** — `Up`'s liveness check and `Logs`' log-file tail are the hooks for surfacing Metro's dev-server state without adding a second lifecycle model.
 - **MCP preview output** — `Logs` (dump mode) gives a stable, non-interactive way to read recent serve output.
+- **connectUrl/QR output** — the Tailscale FQDN above, plus the `metro`/`expo` ports already in workspace state, are what a future MCP output step composes into a connect URL/QR for the device.
 - **Idempotent refresh** — a future "reinstall deps" flow can reuse `Deploy`'s setup-then-serve sequence without needing a new interface method; today it isn't exposed as a separate operation.

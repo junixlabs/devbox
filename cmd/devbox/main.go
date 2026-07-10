@@ -106,6 +106,38 @@ func remoteRunner(sshExec devboxssh.Executor, server string) tailscale.CommandRu
 	}
 }
 
+// hostRuntimeEnvKeys lists the env vars devbox sets on runtime:host
+// workspaces to advertise the box's Tailscale hostname to Metro/Expo, so a
+// phone on the tailnet loads the bundle directly (no --tunnel). Only
+// REACT_NATIVE_PACKAGER_HOSTNAME is set — it's the variable the current Expo
+// CLI documents for overriding the advertised host. EXPO_PACKAGER_PROXY_URL
+// is a legacy/proxy-specific override with unclear format requirements and
+// is left to the user to set explicitly via devbox.yaml if their setup needs
+// it.
+var hostRuntimeEnvKeys = []string{"REACT_NATIVE_PACKAGER_HOSTNAME"}
+
+// injectTailscaleHostname sets hostRuntimeEnvKeys in env to the box's
+// Tailscale MagicDNS FQDN, without overriding a value the user already
+// configured in devbox.yaml. status may be nil (e.g. Tailscale unreachable)
+// in which case env is returned unchanged — callers fall back to
+// devbox.yaml's serve command using `expo start --tunnel` for off-tailnet
+// devices.
+func injectTailscaleHostname(env map[string]string, status *tailscale.StatusInfo) map[string]string {
+	if status == nil {
+		return env
+	}
+	if env == nil {
+		env = make(map[string]string)
+	}
+	fqdn := tailscale.MagicDNSFQDN(status.Hostname, status.TailnetName)
+	for _, key := range hostRuntimeEnvKeys {
+		if env[key] == "" {
+			env[key] = fqdn
+		}
+	}
+	return env
+}
+
 // unservePorts tears down Tailscale serve entries for all workspace ports.
 // Errors are logged as warnings but do not stop the operation.
 func unservePorts(ws *workspace.Workspace) {
@@ -226,6 +258,20 @@ func upCmd(wm workspace.Manager) *cobra.Command {
 				globalCfg.ServerResourceDefaults(cfg.Server),
 				cfg.Resources,
 			)
+
+			// runtime:host workspaces (e.g. Expo/Metro) advertise the box's
+			// Tailscale hostname so a phone on the tailnet can connect
+			// directly, without --tunnel. A failure to resolve Tailscale
+			// status is non-fatal — the workspace still starts, and
+			// off-tailnet devices can fall back to `expo start --tunnel`.
+			if cfg.Runtime == config.RuntimeHost {
+				tm := tailscale.NewManager(remoteRunner(sshExec, cfg.Server))
+				tsStatus, tsErr := tm.Status()
+				if tsErr != nil {
+					slog.Warn("could not resolve Tailscale hostname for host-runtime workspace; devices off the tailnet should use --tunnel", "error", tsErr)
+				}
+				cfg.Env = injectTailscaleHostname(cfg.Env, tsStatus)
+			}
 
 			// Resolve user identity for workspace naming.
 			idResolver := identity.NewResolver(nil)
